@@ -1,40 +1,70 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate, useParams } from "react-router";
 import {
-  Leaf, MapPin, Wind, Droplets, CloudRain, Sun,
+  MapPin, Wind, Droplets, CloudRain, Sun,
   Snowflake, Layers, Tractor, ChevronDown,
   AlertTriangle, Info,
   Eye, Gauge, Sunrise, Sunset,
   CircleCheck, FlaskConical, Waves,
   ChartBar, ArrowRight, ArrowLeft, XCircle, AlertCircle,
-  Wifi, User, Plus, Shield, Zap, ChevronRight
+  Wifi, Shield, Zap, ChevronRight
 } from "lucide-react";
 import {
   ComposedChart, Bar, Line, XAxis, YAxis,
   CartesianGrid, Tooltip, ResponsiveContainer
 } from "recharts";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
+import { FieldcastLogo } from "../components/FieldcastLogo";
+import { openWeatherOneCall, type OneCallResponse } from "../api/openweather";
 
-const chartData = [
-  { day: "Tue", high: 7, low: 2, rain: 2 },
-  { day: "Wed", high: 6, low: 1, rain: 7 },
-  { day: "Thu", high: 5, low: -1, rain: 12 },
-  { day: "Fri", high: 5, low: 0, rain: 4 },
-  { day: "Sat", high: 9, low: 2, rain: 1 },
-  { day: "Sun", high: 11, low: 4, rain: 0 },
-  { day: "Mon", high: 9, low: 5, rain: 5 },
-];
+function msToMph(ms: number) {
+  return ms * 2.2369362920544;
+}
 
-const forecast = [
-  { day: "Today", date: "24 Feb", emoji: "🌤️", cond: "Partly Cloudy",   hi: 7,  lo: 2,  rain: 20, rainMm: 2,  wind: 15, frost: "None",     note: "Fair – light work only" },
-  { day: "Wed",   date: "25 Feb", emoji: "☁️",  cond: "Overcast",       hi: 6,  lo: 1,  rain: 55, rainMm: 7,  wind: 20, frost: "Low",      note: "Further wetting expected" },
-  { day: "Thu",   date: "26 Feb", emoji: "🌧️",  cond: "Rain Showers",   hi: 5,  lo: -1, rain: 80, rainMm: 12, wind: 22, frost: "Moderate", note: "Risk of waterlogging" },
-  { day: "Fri",   date: "27 Feb", emoji: "🌥️",  cond: "Cloudy",         hi: 5,  lo: 0,  rain: 40, rainMm: 4,  wind: 16, frost: "Moderate", note: "Slow drainage" },
-  { day: "Sat",   date: "28 Feb", emoji: "🌤️",  cond: "Sunny Intervals",hi: 9,  lo: 2,  rain: 15, rainMm: 1,  wind: 10, frost: "Low",      note: "Improving – assess" },
-  { day: "Sun",   date: "1 Mar",  emoji: "☀️",  cond: "Sunny",          hi: 11, lo: 4,  rain: 5,  rainMm: 0,  wind: 8,  frost: "None",     note: "Good fieldwork window" },
-  { day: "Mon",   date: "2 Mar",  emoji: "🌦️",  cond: "Light Rain",     hi: 9,  lo: 5,  rain: 45, rainMm: 5,  wind: 14, frost: "None",     note: "Monitor closely" },
-];
+function clamp(n: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, n));
+}
+
+function formatTime(tsSeconds: number) {
+  const d = new Date(tsSeconds * 1000);
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
+
+function formatShortDate(tsSeconds: number) {
+  const d = new Date(tsSeconds * 1000);
+  return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+}
+
+function formatWeekday(tsSeconds: number) {
+  const d = new Date(tsSeconds * 1000);
+  return d.toLocaleDateString(undefined, { weekday: "short" });
+}
+
+function getIconEmoji(icon: string | undefined) {
+  if (!icon) return "🌤️";
+  if (icon.startsWith("01")) return "☀️";
+  if (icon.startsWith("02")) return "🌤️";
+  if (icon.startsWith("03") || icon.startsWith("04")) return "☁️";
+  if (icon.startsWith("09")) return "🌧️";
+  if (icon.startsWith("10")) return "🌦️";
+  if (icon.startsWith("11")) return "⛈️";
+  if (icon.startsWith("13")) return "❄️";
+  if (icon.startsWith("50")) return "🌫️";
+  return "🌤️";
+}
+
+type SavedLocation = { name: string; lat: number; lon: number };
+
+function slugify(input: string) {
+  return input
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
 
 const frostColors: Record<string, string> = {
   None:     "bg-emerald-100 text-emerald-700",
@@ -78,16 +108,211 @@ export default function Dashboard() {
   const [alertsOpen, setAlertsOpen] = useState(true);
   const [forecastView, setForecastView] = useState<"hourly" | "daily" | "weekly" | "monthly">("daily");
   const [profileOpen, setProfileOpen] = useState(false);
-  const [activeProfile, setActiveProfile] = useState(0);
   const [rainfallPeriod, setRainfallPeriod] = useState<"24h" | "7d" | "30d">("24h");
   const [livestockOpen, setLivestockOpen] = useState(true);
+  const [oneCall, setOneCall] = useState<OneCallResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
   const navigate = useNavigate();
+  const location = useLocation();
+  const params = useParams();
 
-  const profiles = [
-    { name: "York Arable",           location: "York, Yorkshire",   type: "Arable",    area: "340 ac" },
-    { name: "Wensleydale Livestock",  location: "Hawes, N Yorks",    type: "Livestock", area: "180 ac" },
-    { name: "Norfolk Grain",          location: "Fakenham, Norfolk", type: "Arable",    area: "520 ac" },
+  const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const urlName = searchParams.get("name") || null;
+  const urlLat = searchParams.get("lat");
+  const urlLon = searchParams.get("lon");
+  const coordsFromUrl = useMemo(() => {
+    const lat = urlLat ? Number(urlLat) : NaN;
+    const lon = urlLon ? Number(urlLon) : NaN;
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    return { lat, lon };
+  }, [urlLat, urlLon]);
+
+  const defaultLocations: SavedLocation[] = [
+    { name: "York, Yorkshire", lat: 53.959, lon: -1.081 },
+    { name: "Exeter, Devon", lat: 50.718, lon: -3.533 },
+    { name: "Norwich, Norfolk", lat: 52.631, lon: 1.297 },
+    { name: "Inverness, Scotland", lat: 57.477, lon: -4.224 },
   ];
+
+  const recentLocations = useMemo(() => {
+    try {
+      const raw = localStorage.getItem("fieldcast:recentLocations");
+      const parsed = raw ? (JSON.parse(raw) as SavedLocation[]) : [];
+      return Array.isArray(parsed) ? parsed.slice(0, 12) : [];
+    } catch {
+      return [];
+    }
+  }, [location.search]);
+
+  const effectiveLocation = useMemo<SavedLocation | null>(() => {
+    if (coordsFromUrl) {
+      return { name: urlName ?? "Selected location", ...coordsFromUrl };
+    }
+    try {
+      const raw = localStorage.getItem("fieldcast:lastLocation");
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as { name: string; lat: number; lon: number };
+      if (!Number.isFinite(parsed.lat) || !Number.isFinite(parsed.lon)) return null;
+      return parsed as SavedLocation;
+    } catch {
+      return null;
+    }
+  }, [coordsFromUrl, urlName]);
+
+  const switchableLocations = useMemo(() => {
+    const source = [...recentLocations, ...defaultLocations];
+    const out: SavedLocation[] = [];
+    for (const l of source) {
+      if (!Number.isFinite(l.lat) || !Number.isFinite(l.lon)) continue;
+      if (out.some((o) => Math.abs(o.lat - l.lat) < 0.001 && Math.abs(o.lon - l.lon) < 0.001)) continue;
+      out.push(l);
+      if (out.length >= 12) break;
+    }
+    return out;
+  }, [recentLocations]);
+
+  useEffect(() => {
+    if (!effectiveLocation) return;
+    let cancelled = false;
+    setLoading(true);
+    setLoadErr(null);
+
+    openWeatherOneCall({ lat: effectiveLocation.lat, lon: effectiveLocation.lon, units: "metric", exclude: ["minutely"] })
+      .then((data) => {
+        if (cancelled) return;
+        setOneCall(data);
+      })
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        setOneCall(null);
+        setLoadErr(e instanceof Error ? e.message : "Failed to load weather data");
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveLocation]);
+
+  const live = oneCall;
+  const liveName = effectiveLocation?.name ?? "UK location";
+  const liveCurrent = live?.current ?? null;
+  const liveWindMph = liveCurrent ? Math.round(msToMph(liveCurrent.wind_speed)) : null;
+  const liveGustMph = liveCurrent?.wind_gust ? Math.round(msToMph(liveCurrent.wind_gust)) : null;
+  const liveHumidity = liveCurrent ? Math.round(liveCurrent.humidity) : null;
+  const liveUvi = liveCurrent ? Math.round(liveCurrent.uvi) : null;
+  const liveTemp = liveCurrent ? Math.round(liveCurrent.temp) : null;
+  const liveFeels = liveCurrent ? Math.round(liveCurrent.feels_like) : null;
+  const liveCond = liveCurrent?.weather?.[0]?.description ? liveCurrent.weather[0].description : null;
+  const liveEmoji = liveCurrent?.weather?.[0]?.icon ? getIconEmoji(liveCurrent.weather[0].icon) : "🌤️";
+  const liveRainTodayMm = live?.daily?.[0]?.rain ?? null;
+  const liveFrostLevel = live?.daily?.[0]?.temp?.min !== undefined
+    ? (live.daily[0].temp.min <= 0 ? "Moderate" : live.daily[0].temp.min <= 2 ? "Low" : "None")
+    : "Low";
+
+  const activeLocationSlug = slugify(liveName);
+
+  useEffect(() => {
+    if (!effectiveLocation) return;
+    const slug = params.slug;
+    const expected = slugify(effectiveLocation.name);
+    if (!slug || slug !== expected) {
+      navigate(`/location/${expected}?name=${encodeURIComponent(effectiveLocation.name)}&lat=${effectiveLocation.lat}&lon=${effectiveLocation.lon}`, { replace: true });
+    }
+  }, [effectiveLocation, params.slug, navigate]);
+
+  const liveHourly = useMemo(() => {
+    return (live?.hourly ?? []).slice(0, 17).map((h) => ({
+      time: formatTime(h.dt),
+      emoji: getIconEmoji(h.weather?.[0]?.icon),
+      temp: Math.round(h.temp),
+      rain: Math.round(clamp(h.pop ?? 0, 0, 1) * 100),
+      wind: Math.round(msToMph(h.wind_speed)),
+      now: liveCurrent ? Math.abs(h.dt - liveCurrent.dt) < 3600 : false,
+    }));
+  }, [live?.hourly, liveCurrent]);
+
+  const liveDaily = useMemo(() => {
+    return (live?.daily ?? []).slice(0, 7).map((d, idx) => {
+      const day = idx === 0 ? "Today" : formatWeekday(d.dt);
+      const date = formatShortDate(d.dt);
+      const rainMm = Math.round((d.rain ?? 0) * 10) / 10;
+      const popPct = Math.round(clamp(d.pop ?? 0, 0, 1) * 100);
+      const windMph = Math.round(msToMph(d.wind_speed));
+      return {
+        day,
+        date,
+        emoji: getIconEmoji(d.weather?.[0]?.icon),
+        cond: d.weather?.[0]?.main ?? "Forecast",
+        hi: Math.round(d.temp.max),
+        lo: Math.round(d.temp.min),
+        rain: popPct,
+        rainMm,
+        wind: windMph,
+        frost: d.temp.min <= 0 ? "Moderate" : d.temp.min <= 2 ? "Low" : "None",
+        note: popPct >= 70 ? "Wet spell likely — plan accordingly" : popPct >= 40 ? "Mixed conditions — monitor closely" : "Good fieldwork potential",
+      };
+    });
+  }, [live?.daily]);
+
+  const liveChartData = useMemo(() => {
+    return (live?.daily ?? []).slice(0, 7).map((d) => ({
+      day: formatWeekday(d.dt),
+      high: Math.round(d.temp.max),
+      low: Math.round(d.temp.min),
+      rain: Math.round(((d.rain ?? 0) + (d.snow ?? 0)) * 10) / 10,
+    }));
+  }, [live?.daily]);
+
+  const hourlyForUi = liveHourly.length
+    ? liveHourly
+    : [
+        { time: "07:00", emoji: "🌫️", temp: 4, rain: 5, wind: 12, label: "Misty" },
+        { time: "08:00", emoji: "🌤️", temp: 5, rain: 5, wind: 13, label: "Part cloud" },
+        { time: "09:00", emoji: "🌤️", temp: 6, rain: 10, wind: 14, label: "Part cloud" },
+        { time: "10:00", emoji: "⛅", temp: 6, rain: 10, wind: 15, label: "Part cloud", now: true },
+        { time: "11:00", emoji: "⛅", temp: 7, rain: 15, wind: 15, label: "Part cloud" },
+        { time: "12:00", emoji: "🌥️", temp: 7, rain: 20, wind: 16, label: "Mostly cloud" },
+        { time: "13:00", emoji: "🌥️", temp: 7, rain: 20, wind: 17, label: "Mostly cloud" },
+        { time: "14:00", emoji: "🌥️", temp: 7, rain: 25, wind: 18, label: "Mostly cloud" },
+        { time: "15:00", emoji: "☁️", temp: 6, rain: 30, wind: 19, label: "Overcast" },
+        { time: "16:00", emoji: "☁️", temp: 6, rain: 35, wind: 20, label: "Overcast" },
+        { time: "17:00", emoji: "🌦️", temp: 5, rain: 45, wind: 21, label: "Light rain" },
+        { time: "18:00", emoji: "🌦️", temp: 5, rain: 50, wind: 20, label: "Light rain" },
+        { time: "19:00", emoji: "🌧️", temp: 4, rain: 60, wind: 18, label: "Rain" },
+        { time: "20:00", emoji: "🌧️", temp: 4, rain: 55, wind: 17, label: "Rain" },
+        { time: "21:00", emoji: "☁️", temp: 3, rain: 30, wind: 15, label: "Overcast" },
+        { time: "22:00", emoji: "☁️", temp: 3, rain: 20, wind: 14, label: "Overcast" },
+        { time: "23:00", emoji: "🌑", temp: 2, rain: 10, wind: 13, label: "Clear" },
+      ];
+
+  const forecastForUi = liveDaily.length
+    ? liveDaily
+    : [
+        { day: "Today", date: "24 Feb", emoji: "🌤️", cond: "Partly Cloudy", hi: 7, lo: 2, rain: 20, rainMm: 2, wind: 15, frost: "None", note: "Fair – light work only" },
+        { day: "Wed", date: "25 Feb", emoji: "☁️", cond: "Overcast", hi: 6, lo: 1, rain: 55, rainMm: 7, wind: 20, frost: "Low", note: "Further wetting expected" },
+        { day: "Thu", date: "26 Feb", emoji: "🌧️", cond: "Rain Showers", hi: 5, lo: -1, rain: 80, rainMm: 12, wind: 22, frost: "Moderate", note: "Risk of waterlogging" },
+        { day: "Fri", date: "27 Feb", emoji: "🌥️", cond: "Cloudy", hi: 5, lo: 0, rain: 40, rainMm: 4, wind: 16, frost: "Moderate", note: "Slow drainage" },
+        { day: "Sat", date: "28 Feb", emoji: "🌤️", cond: "Sunny Intervals", hi: 9, lo: 2, rain: 15, rainMm: 1, wind: 10, frost: "Low", note: "Improving – assess" },
+        { day: "Sun", date: "1 Mar", emoji: "☀️", cond: "Sunny", hi: 11, lo: 4, rain: 5, rainMm: 0, wind: 8, frost: "None", note: "Good fieldwork window" },
+        { day: "Mon", date: "2 Mar", emoji: "🌦️", cond: "Light Rain", hi: 9, lo: 5, rain: 45, rainMm: 5, wind: 14, frost: "None", note: "Monitor closely" },
+      ];
+
+  const chartDataForUi = liveChartData.length
+    ? liveChartData
+    : [
+        { day: "Tue", high: 7, low: 2, rain: 2 },
+        { day: "Wed", high: 6, low: 1, rain: 7 },
+        { day: "Thu", high: 5, low: -1, rain: 12 },
+        { day: "Fri", high: 5, low: 0, rain: 4 },
+        { day: "Sat", high: 9, low: 2, rain: 1 },
+        { day: "Sun", high: 11, low: 4, rain: 0 },
+        { day: "Mon", high: 9, low: 5, rain: 5 },
+      ];
 
   const rainfallData: Record<"24h" | "7d" | "30d", { amount: number; avg: number; label: string; status: string; statusColor: string; tip: string }> = {
     "24h": { amount: 2.4, avg: 1.8, label: "Last 24 hours", status: "Above average",              statusColor: "text-amber-600", tip: "Fields accessible but monitor closely. Avoid low-lying areas." },
@@ -111,17 +336,7 @@ export default function Dashboard() {
               <ArrowLeft className="w-4 h-4" />
               <span className="hidden sm:inline text-xs">Home</span>
             </button>
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "rgba(74,222,128,0.18)" }}>
-                <Leaf className="w-4 h-4 text-green-400" />
-              </div>
-              <div>
-                <p className="text-white leading-none" style={{ fontSize: "0.95rem", fontWeight: 600 }}>
-                  FarmWeather <span className="text-green-400">UK</span>
-                </p>
-                <p className="text-green-300/60 leading-none" style={{ fontSize: "0.6rem" }}>Agricultural Intelligence</p>
-              </div>
-            </div>
+            <FieldcastLogo size="sm" />
           </div>
 
           {/* Farm Profile Switcher */}
@@ -133,46 +348,53 @@ export default function Dashboard() {
             >
               <MapPin className="w-3.5 h-3.5 text-green-400 flex-shrink-0" />
               <div className="text-left hidden sm:block">
-                <p style={{ fontSize: "0.85rem" }}>{profiles[activeProfile].name}</p>
-                <p className="text-green-300/50 leading-none" style={{ fontSize: "0.6rem" }}>{profiles[activeProfile].type} · {profiles[activeProfile].area}</p>
+                <p style={{ fontSize: "0.85rem" }}>{liveName}</p>
+                <p className="text-green-300/50 leading-none" style={{ fontSize: "0.6rem" }}>UK location</p>
               </div>
-              <span className="sm:hidden" style={{ fontSize: "0.85rem" }}>{profiles[activeProfile].name.split(" ")[0]}</span>
+              <span className="sm:hidden" style={{ fontSize: "0.85rem" }}>{liveName.split(",")[0]}</span>
               <ChevronDown className={`w-3.5 h-3.5 text-white/30 ml-1 transition-transform ${profileOpen ? "rotate-180" : ""}`} />
             </button>
             {profileOpen && (
               <div className="absolute top-full mt-2 left-0 w-68 bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden z-50" style={{ width: 272 }}>
                 <div className="px-4 py-3 border-b border-gray-100">
-                  <p className="text-gray-500 text-xs font-semibold uppercase tracking-widest">My Farm Profiles</p>
+                  <p className="text-gray-500 text-xs font-semibold uppercase tracking-widest">Saved Locations</p>
                 </div>
-                {profiles.map((p, i) => (
-                  <button key={i} onClick={() => { setActiveProfile(i); setProfileOpen(false); }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors ${i < profiles.length - 1 ? "border-b border-gray-50" : ""}`}>
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${activeProfile === i ? "bg-green-100 text-green-600" : "bg-gray-100 text-gray-400"}`}>
-                      <User className="w-4 h-4" />
+                {switchableLocations.map((p, i) => (
+                  <button
+                    key={`${p.lat},${p.lon}`}
+                    onClick={() => {
+                      const slug = slugify(p.name);
+                      navigate(`/location/${slug}?name=${encodeURIComponent(p.name)}&lat=${p.lat}&lon=${p.lon}`);
+                      setProfileOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors ${i < switchableLocations.length - 1 ? "border-b border-gray-50" : ""}`}
+                  >
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${slugify(p.name) === activeLocationSlug ? "bg-green-100 text-green-600" : "bg-gray-100 text-gray-400"}`}>
+                      <MapPin className="w-4 h-4" />
                     </div>
                     <div className="flex-1">
-                      <p className={`text-sm font-semibold ${activeProfile === i ? "text-green-700" : "text-gray-700"}`}>{p.name}</p>
-                      <p className="text-gray-400 text-xs">{p.location} · {p.type}</p>
+                      <p className={`text-sm font-semibold ${slugify(p.name) === activeLocationSlug ? "text-green-700" : "text-gray-700"}`}>{p.name}</p>
+                      <p className="text-gray-400 text-xs">{p.lat.toFixed(3)}, {p.lon.toFixed(3)}</p>
                     </div>
-                    {activeProfile === i && <CircleCheck className="w-4 h-4 text-green-500 flex-shrink-0" />}
+                    {slugify(p.name) === activeLocationSlug && <CircleCheck className="w-4 h-4 text-green-500 flex-shrink-0" />}
                   </button>
                 ))}
-                <button className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-green-50 transition-colors border-t border-gray-100">
-                  <div className="w-8 h-8 rounded-lg bg-green-50 border border-green-200 flex items-center justify-center flex-shrink-0">
-                    <Plus className="w-4 h-4 text-green-600" />
-                  </div>
-                  <p className="text-green-600 text-sm font-medium">Add new farm profile</p>
-                </button>
               </div>
             )}
           </div>
 
           {/* Date + Connectivity */}
           <div className="hidden sm:flex flex-col items-end gap-1">
-            <p className="text-white/80 text-xs">Tuesday, 24 February 2026</p>
+            <p className="text-white/80 text-xs">
+              {liveCurrent
+                ? new Date(liveCurrent.dt * 1000).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" })
+                : "—"}
+            </p>
             <div className="flex items-center gap-1.5">
               <Wifi className="w-3 h-3 text-green-400" />
-              <p className="text-green-300/70" style={{ fontSize: "0.65rem" }}>Online · Updated 08:47</p>
+              <p className="text-green-300/70" style={{ fontSize: "0.65rem" }}>
+                {loading ? "Loading…" : loadErr ? "Error loading data" : `Online · Updated ${liveCurrent ? formatTime(liveCurrent.dt) : "—"}`}
+              </p>
             </div>
           </div>
         </div>
@@ -197,6 +419,15 @@ export default function Dashboard() {
       </header>
 
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-7 space-y-6">
+        {loadErr && (
+          <div className="rounded-2xl px-5 py-4 flex items-start gap-3" style={{ background: "#FFFBEB", border: "1px solid #fde68a" }}>
+            <Info className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-amber-900 font-semibold text-sm">Couldn’t load OpenWeather data.</p>
+              <p className="text-amber-800/80 text-sm mt-1" style={{ lineHeight: 1.6 }}>{loadErr}</p>
+            </div>
+          </div>
+        )}
 
         {/* HERO BANNER */}
         <div className="rounded-2xl overflow-hidden relative" style={{ height: 190, boxShadow: "0 8px 40px rgba(0,0,0,0.18)" }}>
@@ -209,19 +440,25 @@ export default function Dashboard() {
           <div className="absolute inset-0 flex items-center px-7 sm:px-10">
             <div className="flex items-center gap-8">
               <div>
-                <p style={{ fontSize: "0.62rem", fontWeight: 600, letterSpacing: "0.12em", color: "rgba(134,239,172,0.6)" }} className="mb-2">YORK, YORKSHIRE</p>
+                <p style={{ fontSize: "0.62rem", fontWeight: 600, letterSpacing: "0.12em", color: "rgba(134,239,172,0.6)" }} className="mb-2">
+                  {liveName.toUpperCase()}
+                </p>
                 <div className="flex items-start gap-1.5">
-                  <span className="text-white leading-none" style={{ fontSize: "5.5rem", fontWeight: 300, letterSpacing: "-0.04em" }}>7</span>
+                  <span className="text-white leading-none" style={{ fontSize: "5.5rem", fontWeight: 300, letterSpacing: "-0.04em" }}>
+                    {liveTemp ?? 7}
+                  </span>
                   <span style={{ fontSize: "2rem", fontWeight: 300, color: "rgba(255,255,255,0.5)", marginTop: "0.7rem" }}>°C</span>
                 </div>
-                <p style={{ fontSize: "0.85rem", color: "rgba(255,255,255,0.5)", fontWeight: 400, marginTop: "2px" }}>Feels like 4°C · Partly Cloudy 🌤️</p>
+                <p style={{ fontSize: "0.85rem", color: "rgba(255,255,255,0.5)", fontWeight: 400, marginTop: "2px" }}>
+                  Feels like {liveFeels ?? 4}°C · {liveCond ? liveCond.charAt(0).toUpperCase() + liveCond.slice(1) : "Partly Cloudy"} {liveEmoji}
+                </p>
               </div>
               <div className="hidden md:flex flex-col gap-2.5" style={{ borderLeft: "1px solid rgba(255,255,255,0.1)", paddingLeft: "2rem" }}>
                 {[
-                  { icon: <Wind className="w-3.5 h-3.5 text-amber-400" />, text: "15 mph NE", accent: "No spraying", accentColor: "#fcd34d" },
-                  { icon: <Droplets className="w-3.5 h-3.5 text-blue-400" />, text: "Humidity 78%", accent: null, accentColor: "" },
+                  { icon: <Wind className="w-3.5 h-3.5 text-amber-400" />, text: `${liveWindMph ?? 15} mph`, accent: (liveWindMph ?? 15) > 10 ? "No spraying" : "Spray window possible", accentColor: "#fcd34d" },
+                  { icon: <Droplets className="w-3.5 h-3.5 text-blue-400" />, text: `Humidity ${liveHumidity ?? 78}%`, accent: null, accentColor: "" },
                   { icon: <CloudRain className="w-3.5 h-3.5 text-sky-400" />, text: "2.4 mm today · 38 mm this month", accent: null, accentColor: "" },
-                  { icon: <Sun className="w-3.5 h-3.5 text-yellow-300" />, text: "UV Index 1 — Low", accent: null, accentColor: "" },
+                  { icon: <Sun className="w-3.5 h-3.5 text-yellow-300" />, text: `UV Index ${liveUvi ?? 1} — ${liveUvi !== null && liveUvi >= 6 ? "High" : liveUvi !== null && liveUvi >= 3 ? "Moderate" : "Low"}`, accent: null, accentColor: "" },
                 ].map((row, i) => (
                   <div key={i} className="flex items-center gap-2">
                     {row.icon}
@@ -245,7 +482,9 @@ export default function Dashboard() {
             <div className="flex items-center gap-2.5">
               <AlertTriangle className="w-4 h-4 text-orange-400" />
               <span className="text-orange-100 font-semibold text-sm" style={{ letterSpacing: "0.01em" }}>Active Warnings</span>
-              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-orange-500 text-white text-xs font-bold" style={{ boxShadow: "0 2px 8px rgba(249,115,22,0.4)" }}>2</span>
+              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-orange-500 text-white text-xs font-bold" style={{ boxShadow: "0 2px 8px rgba(249,115,22,0.4)" }}>
+                {(live?.alerts?.length ?? 0) || 0}
+              </span>
             </div>
             <ChevronDown className={`w-4 h-4 text-orange-300/60 transition-transform duration-200 ${alertsOpen ? "rotate-180" : ""}`} />
           </button>
@@ -253,33 +492,40 @@ export default function Dashboard() {
           {/* Collapsible body */}
           {alertsOpen && (
             <div className="bg-white divide-y" style={{ borderTop: "none" }}>
-              <div className="p-5 flex items-start gap-4">
-                <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: "rgba(234,88,12,0.1)" }}>
-                  <AlertTriangle className="w-4.5 h-4.5 text-orange-500" style={{ width: "1.1rem", height: "1.1rem" }} />
-                </div>
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                    <span className="px-2 py-0.5 rounded-md text-xs font-semibold" style={{ background: "rgba(234,88,12,0.1)", color: "#9a3412" }}>Warning</span>
-                    <span className="px-2 py-0.5 rounded-md text-xs font-medium" style={{ background: "#F2F4F6", color: "#64748b" }}>Met Office</span>
+              {(live?.alerts?.length ?? 0) > 0 ? (
+                live!.alerts!.slice(0, 3).map((a, i) => (
+                  <div key={`${a.event}-${a.start}-${i}`} className="p-5 flex items-start gap-4">
+                    <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: "rgba(234,88,12,0.1)" }}>
+                      <AlertTriangle className="w-4.5 h-4.5 text-orange-500" style={{ width: "1.1rem", height: "1.1rem" }} />
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                        <span className="px-2 py-0.5 rounded-md text-xs font-semibold" style={{ background: "rgba(234,88,12,0.1)", color: "#9a3412" }}>Alert</span>
+                        <span className="px-2 py-0.5 rounded-md text-xs font-medium" style={{ background: "#F2F4F6", color: "#64748b" }}>
+                          {a.sender_name || "OpenWeather"}
+                        </span>
+                      </div>
+                      <p className="text-gray-900 font-semibold text-sm">{a.event}</p>
+                      <p className="text-gray-500 text-xs mt-1 leading-relaxed" style={{ whiteSpace: "pre-wrap" }}>
+                        {a.description}
+                      </p>
+                      <p className="text-orange-400 text-xs mt-2 font-medium">
+                        {`Valid ${new Date(a.start * 1000).toLocaleString()} – ${new Date(a.end * 1000).toLocaleString()}`}
+                      </p>
+                    </div>
                   </div>
-                  <p className="text-gray-900 font-semibold text-sm">Wind Advisory — Spraying Restricted</p>
-                  <p className="text-gray-500 text-xs mt-1 leading-relaxed">Sustained NE winds of 15 mph with gusts to 24 mph forecast through Thursday. No spray operations until conditions improve.</p>
-                  <p className="text-orange-400 text-xs mt-2 font-medium">Valid until Fri 27 Feb, 18:00</p>
-                </div>
-              </div>
-              <div className="p-5 flex items-start gap-4">
-                <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: "rgba(245,158,11,0.1)" }}>
-                  <Info style={{ width: "1.1rem", height: "1.1rem", color: "#d97706" }} />
-                </div>
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <span className="px-2 py-0.5 rounded-md text-xs font-semibold" style={{ background: "rgba(245,158,11,0.1)", color: "#92400e" }}>Advisory</span>
+                ))
+              ) : (
+                <div className="p-5 flex items-start gap-4">
+                  <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: "rgba(16,185,129,0.12)" }}>
+                    <CircleCheck className="w-5 h-5 text-emerald-600" />
                   </div>
-                  <p className="text-gray-900 font-semibold text-sm">Frost Risk — Thursday Night</p>
-                  <p className="text-gray-500 text-xs mt-1 leading-relaxed">Temperatures forecast to fall to -1°C overnight Thursday. Low risk of ground frost affecting field crops.</p>
-                  <p className="text-amber-400 text-xs mt-2 font-medium">Valid until Fri 27 Feb, 08:00</p>
+                  <div className="flex-1">
+                    <p className="text-gray-900 font-semibold text-sm">No active weather alerts for this location.</p>
+                    <p className="text-gray-500 text-xs mt-1 leading-relaxed">You can still use the forecast below for planning fieldwork.</p>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
         </div>
@@ -296,25 +542,7 @@ export default function Dashboard() {
               </div>
               <div className="overflow-x-auto">
                 <div className="flex px-3 py-3 gap-1" style={{ minWidth: "max-content" }}>
-                  {[
-                    { time: "07:00", emoji: "🌫️", temp: 4,  rain: 5,  wind: 12, label: "Misty" },
-                    { time: "08:00", emoji: "🌤️", temp: 5,  rain: 5,  wind: 13, label: "Part cloud" },
-                    { time: "09:00", emoji: "🌤️", temp: 6,  rain: 10, wind: 14, label: "Part cloud" },
-                    { time: "10:00", emoji: "⛅",  temp: 6,  rain: 10, wind: 15, label: "Part cloud", now: true },
-                    { time: "11:00", emoji: "⛅",  temp: 7,  rain: 15, wind: 15, label: "Part cloud" },
-                    { time: "12:00", emoji: "🌥️", temp: 7,  rain: 20, wind: 16, label: "Mostly cloud" },
-                    { time: "13:00", emoji: "🌥️", temp: 7,  rain: 20, wind: 17, label: "Mostly cloud" },
-                    { time: "14:00", emoji: "🌥️", temp: 7,  rain: 25, wind: 18, label: "Mostly cloud" },
-                    { time: "15:00", emoji: "☁️",  temp: 6,  rain: 30, wind: 19, label: "Overcast" },
-                    { time: "16:00", emoji: "☁️",  temp: 6,  rain: 35, wind: 20, label: "Overcast" },
-                    { time: "17:00", emoji: "🌦️", temp: 5,  rain: 45, wind: 21, label: "Light rain" },
-                    { time: "18:00", emoji: "🌦️", temp: 5,  rain: 50, wind: 20, label: "Light rain" },
-                    { time: "19:00", emoji: "🌧️", temp: 4,  rain: 60, wind: 18, label: "Rain" },
-                    { time: "20:00", emoji: "🌧️", temp: 4,  rain: 55, wind: 17, label: "Rain" },
-                    { time: "21:00", emoji: "☁️",  temp: 3,  rain: 30, wind: 15, label: "Overcast" },
-                    { time: "22:00", emoji: "☁️",  temp: 3,  rain: 20, wind: 14, label: "Overcast" },
-                    { time: "23:00", emoji: "🌑",  temp: 2,  rain: 10, wind: 13, label: "Clear" },
-                  ].map((h) => (
+                  {hourlyForUi.map((h) => (
                     <div
                       key={h.time}
                       className={`flex flex-col items-center gap-2 px-3 py-3 rounded-2xl flex-shrink-0 relative ${
@@ -528,8 +756,8 @@ export default function Dashboard() {
                     <span className="text-xs font-semibold px-2.5 py-1 rounded-lg" style={{ background: "rgba(245,158,11,0.12)", color: "#b45309" }}>High</span>
                   </div>
                   <p style={{ fontSize: "0.7rem", color: "#94a3b8", fontWeight: 500, marginBottom: "4px" }}>Wind Speed</p>
-                  <p className="text-amber-600 font-bold" style={{ fontSize: "2rem", lineHeight: 1 }}>15 <span style={{ fontSize: "1rem", fontWeight: 500 }}>mph</span></p>
-                  <p style={{ fontSize: "0.72rem", color: "#94a3b8", marginTop: "6px" }}>Gusts to 24 mph · NE</p>
+                  <p className="text-amber-600 font-bold" style={{ fontSize: "2rem", lineHeight: 1 }}>{liveWindMph ?? 15} <span style={{ fontSize: "1rem", fontWeight: 500 }}>mph</span></p>
+                  <p style={{ fontSize: "0.72rem", color: "#94a3b8", marginTop: "6px" }}>Gusts to {liveGustMph ?? 24} mph</p>
                   <div className="mt-3 pt-3" style={{ borderTop: "1px solid #F1F3F5" }}>
                     <p style={{ fontSize: "0.72rem", color: "#d97706", fontWeight: 600 }}>⚠️ Safe spraying limit is 10 mph</p>
                   </div>
@@ -544,7 +772,7 @@ export default function Dashboard() {
                     <span className="text-xs font-semibold px-2.5 py-1 rounded-lg" style={{ background: "rgba(14,165,233,0.1)", color: "#0369a1" }}>Light</span>
                   </div>
                   <p style={{ fontSize: "0.7rem", color: "#94a3b8", fontWeight: 500, marginBottom: "4px" }}>Rainfall Today</p>
-                  <p className="text-sky-600 font-bold" style={{ fontSize: "2rem", lineHeight: 1 }}>2.4 <span style={{ fontSize: "1rem", fontWeight: 500 }}>mm</span></p>
+                  <p className="text-sky-600 font-bold" style={{ fontSize: "2rem", lineHeight: 1 }}>{liveRainTodayMm ?? 2.4} <span style={{ fontSize: "1rem", fontWeight: 500 }}>mm</span></p>
                   <p style={{ fontSize: "0.72rem", color: "#94a3b8", marginTop: "6px" }}>38 mm this month</p>
                   <div className="mt-3 pt-3" style={{ borderTop: "1px solid #F1F3F5" }}>
                     <p style={{ fontSize: "0.72rem", color: "#0ea5e9", fontWeight: 600 }}>🌧️ Heavy rain expected Thursday</p>
@@ -575,10 +803,10 @@ export default function Dashboard() {
                     <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: "rgba(99,102,241,0.1)" }}>
                       <Snowflake className="w-5 h-5 text-indigo-400" />
                     </div>
-                    <span className="text-xs font-semibold px-2.5 py-1 rounded-lg" style={{ background: "rgba(234,179,8,0.12)", color: "#854d0e" }}>Low</span>
+                    <span className="text-xs font-semibold px-2.5 py-1 rounded-lg" style={{ background: "rgba(234,179,8,0.12)", color: "#854d0e" }}>{liveFrostLevel}</span>
                   </div>
                   <p style={{ fontSize: "0.7rem", color: "#94a3b8", fontWeight: 500, marginBottom: "4px" }}>Frost Risk</p>
-                  <p className="text-indigo-600 font-bold" style={{ fontSize: "2rem", lineHeight: 1 }}>Low</p>
+                  <p className="text-indigo-600 font-bold" style={{ fontSize: "2rem", lineHeight: 1 }}>{liveFrostLevel}</p>
                   <p style={{ fontSize: "0.72rem", color: "#94a3b8", marginTop: "6px" }}>Soil temp 4°C at 10 cm depth</p>
                   <div className="mt-3 pt-3" style={{ borderTop: "1px solid #F1F3F5" }}>
                     <p style={{ fontSize: "0.72rem", color: "#6366f1", fontWeight: 600 }}>🌙 Risk rises Thursday night</p>
@@ -749,25 +977,7 @@ export default function Dashboard() {
                 <div className="bg-white rounded-2xl overflow-hidden" style={{ border: "1px solid #E4E7EA", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
                   <div className="overflow-x-auto">
                     <div className="flex px-3 py-3 gap-1" style={{ minWidth: "max-content" }}>
-                      {[
-                        { time: "07:00", emoji: "🌫️", temp: 4,  rain: 5,  wind: 12 },
-                        { time: "08:00", emoji: "🌤️", temp: 5,  rain: 5,  wind: 13 },
-                        { time: "09:00", emoji: "🌤️", temp: 6,  rain: 10, wind: 14 },
-                        { time: "10:00", emoji: "⛅",  temp: 6,  rain: 10, wind: 15, now: true },
-                        { time: "11:00", emoji: "⛅",  temp: 7,  rain: 15, wind: 15 },
-                        { time: "12:00", emoji: "🌥️", temp: 7,  rain: 20, wind: 16 },
-                        { time: "13:00", emoji: "🌥️", temp: 7,  rain: 20, wind: 17 },
-                        { time: "14:00", emoji: "🌥️", temp: 7,  rain: 25, wind: 18 },
-                        { time: "15:00", emoji: "☁️",  temp: 6,  rain: 30, wind: 19 },
-                        { time: "16:00", emoji: "☁️",  temp: 6,  rain: 35, wind: 20 },
-                        { time: "17:00", emoji: "🌦️", temp: 5,  rain: 45, wind: 21 },
-                        { time: "18:00", emoji: "🌦️", temp: 5,  rain: 50, wind: 20 },
-                        { time: "19:00", emoji: "🌧️", temp: 4,  rain: 60, wind: 18 },
-                        { time: "20:00", emoji: "🌧️", temp: 4,  rain: 55, wind: 17 },
-                        { time: "21:00", emoji: "☁️",  temp: 3,  rain: 30, wind: 15 },
-                        { time: "22:00", emoji: "☁️",  temp: 3,  rain: 20, wind: 14 },
-                        { time: "23:00", emoji: "🌑",  temp: 2,  rain: 10, wind: 13 },
-                      ].map((h) => (
+                      {hourlyForUi.map((h) => (
                         <div
                           key={h.time}
                           className={`flex flex-col items-center gap-2 px-3 py-3 rounded-2xl flex-shrink-0 relative ${
@@ -820,12 +1030,12 @@ export default function Dashboard() {
             {forecastView === "daily" && (
               <div className="space-y-4">
                 <div className="flex items-center gap-3 px-1">
-                  <p style={{ fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.1em", color: "#94a3b8" }}>7-DAY FORECAST — YORK, YORKSHIRE</p>
+                  <p style={{ fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.1em", color: "#94a3b8" }}>7-DAY FORECAST — {liveName.toUpperCase()}</p>
                   <div className="flex-1 h-px bg-gray-200" />
                 </div>
                 <div className="overflow-x-auto pb-2 -mx-1 px-1">
                   <div className="flex gap-3" style={{ minWidth: "max-content" }}>
-                    {forecast.map((d) => {
+                    {forecastForUi.map((d) => {
                       const rainBar = Math.min((d.rainMm / 15) * 100, 100);
                       const isToday = d.day === "Today";
                       return (
@@ -1087,7 +1297,7 @@ export default function Dashboard() {
               </div>
               <div style={{ height: 320 }}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={chartData} margin={{ top: 5, right: 20, left: 5, bottom: 5 }}>
+                  <ComposedChart data={chartDataForUi} margin={{ top: 5, right: 20, left: 5, bottom: 5 }}>
                     <defs>
                       <linearGradient id="rainGrad" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8} />
@@ -1147,7 +1357,7 @@ export default function Dashboard() {
         <footer className="text-center py-6" style={{ borderTop: "1px solid #E4E7EA" }}>
           <div className="flex items-center justify-center gap-2 mb-2">
             <div className="w-1.5 h-1.5 rounded-full bg-green-500" style={{ boxShadow: "0 0 6px rgba(74,222,128,0.7)" }} />
-            <p style={{ fontSize: "0.72rem", color: "#94a3b8", fontWeight: 500 }}>FarmWeather UK · Agricultural weather intelligence</p>
+            <p style={{ fontSize: "0.72rem", color: "#94a3b8", fontWeight: 500 }}>Fieldcast · Agricultural weather intelligence</p>
           </div>
           <p style={{ fontSize: "0.68rem", color: "#cbd5e1" }}>Always cross-reference with Met Office alerts before critical decisions · AHDB guidance aligned</p>
         </footer>

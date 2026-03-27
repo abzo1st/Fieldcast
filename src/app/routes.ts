@@ -11,4 +11,8 @@ export const router = createBrowserRouter([
     path: "/dashboard",
     Component: Dashboard,
   },
+  {
+    path: "/location/:slug",
+    Component: Dashboard,
+  },
 ]);

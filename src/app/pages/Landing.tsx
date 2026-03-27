@@ -1,18 +1,13 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
-import { Leaf, MapPin, Search, Wind, CloudRain, Thermometer, Shield, ArrowRight } from "lucide-react";
+import { MapPin, Search, Wind, CloudRain, Thermometer, Shield, ArrowRight } from "lucide-react";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
+import { FieldcastLogo } from "../components/FieldcastLogo";
+import { openWeatherGeocodeDirect, type GeoDirectResult } from "../api/openweather";
 
 const BG = "https://images.unsplash.com/photo-1604590627104-655d2be93b23?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxVSyUyMGZhcm1sYW5kJTIwZGF3biUyMGFlcmlhbCUyMGdvbGRlbiUyMGhvdXJ8ZW58MXx8fHwxNzcxOTgzNDMwfDA&ixlib=rb-4.1.0&q=80&w=1080";
 
-const SUGGESTIONS = [
-  "York, Yorkshire",
-  "Inverness, Scotland",
-  "Hereford, Herefordshire",
-  "Bury St Edmunds, Suffolk",
-  "Exeter, Devon",
-  "Carlisle, Cumbria",
-];
+const FALLBACK_SUGGESTIONS = ["York, Yorkshire", "Inverness, Scotland", "Hereford, Herefordshire", "Bury St Edmunds, Suffolk", "Exeter, Devon", "Carlisle, Cumbria"];
 
 const FEATURES = [
   { icon: <Wind className="w-4 h-4" />, label: "Spray drift risk" },
@@ -21,23 +16,119 @@ const FEATURES = [
   { icon: <Shield className="w-4 h-4" />, label: "Livestock warnings" },
 ];
 
+function slugify(input: string) {
+  return input
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
+
+type SavedLocation = { name: string; lat: number; lon: number };
+
 export default function Landing() {
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [focused, setFocused] = useState(false);
+  const [results, setResults] = useState<GeoDirectResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchErr, setSearchErr] = useState<string | null>(null);
 
-  const filtered = query.length > 0
-    ? SUGGESTIONS.filter(s => s.toLowerCase().includes(query.toLowerCase()))
-    : SUGGESTIONS;
+  const filteredFallback = useMemo(() => {
+    return query.length > 0
+      ? FALLBACK_SUGGESTIONS.filter(s => s.toLowerCase().includes(query.toLowerCase()))
+      : FALLBACK_SUGGESTIONS;
+  }, [query]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  useEffect(() => {
+    let cancelled = false;
+    const q = query.trim();
+    if (!focused) return;
+    if (q.length < 2) {
+      setResults([]);
+      setSearchErr(null);
+      setSearching(false);
+      return;
+    }
+
+    setSearching(true);
+    setSearchErr(null);
+    const t = window.setTimeout(() => {
+      openWeatherGeocodeDirect(q, 6)
+        .then((r) => {
+          if (cancelled) return;
+          setResults(r);
+        })
+        .catch((e: unknown) => {
+          if (cancelled) return;
+          setResults([]);
+          setSearchErr(e instanceof Error ? e.message : "Location search failed");
+        })
+        .finally(() => {
+          if (cancelled) return;
+          setSearching(false);
+        });
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+    };
+  }, [query, focused]);
+
+  function navigateToLocation(loc: { name: string; lat: number; lon: number; country?: string; state?: string }) {
+    const display = loc.state ? `${loc.name}, ${loc.state}` : loc.country ? `${loc.name}, ${loc.country}` : loc.name;
+    const entry: SavedLocation = { name: display, lat: loc.lat, lon: loc.lon };
+    localStorage.setItem("fieldcast:lastLocation", JSON.stringify(entry));
+    const prev: SavedLocation[] = (() => {
+      try {
+        const raw = localStorage.getItem("fieldcast:recentLocations");
+        const parsed = raw ? (JSON.parse(raw) as SavedLocation[]) : [];
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    })();
+    const deduped = [entry, ...prev.filter((p) => !(Math.abs(p.lat - entry.lat) < 0.001 && Math.abs(p.lon - entry.lon) < 0.001))].slice(0, 12);
+    localStorage.setItem("fieldcast:recentLocations", JSON.stringify(deduped));
+    const slug = slugify(display);
+    navigate(`/location/${slug}?name=${encodeURIComponent(display)}&lat=${loc.lat}&lon=${loc.lon}`);
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    navigate("/dashboard");
+    const q = query.trim();
+    if (!q) return;
+
+    try {
+      setSearching(true);
+      setSearchErr(null);
+      const r = await openWeatherGeocodeDirect(q, 1);
+      if (r[0]) navigateToLocation(r[0]);
+      else setSearchErr("No matching locations found");
+    } catch (err: unknown) {
+      setSearchErr(err instanceof Error ? err.message : "Location search failed");
+    } finally {
+      setSearching(false);
+    }
   };
 
-  const handleSuggestion = (s: string) => {
+  const handleFallbackSuggestion = (s: string) => {
     setQuery(s);
-    navigate("/dashboard");
+    // trigger submit-like behavior
+    void (async () => {
+      try {
+        setSearching(true);
+        setSearchErr(null);
+        const r = await openWeatherGeocodeDirect(s, 1);
+        if (r[0]) navigateToLocation(r[0]);
+        else setSearchErr("No matching locations found");
+      } catch (err: unknown) {
+        setSearchErr(err instanceof Error ? err.message : "Location search failed");
+      } finally {
+        setSearching(false);
+      }
+    })();
   };
 
   return (
@@ -62,20 +153,7 @@ export default function Landing() {
 
       {/* Top nav bar */}
       <nav className="relative z-10 flex items-center justify-between px-6 sm:px-10 pt-7 pb-4">
-        <div className="flex items-center gap-2.5">
-          <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center"
-            style={{ background: "rgba(74,222,128,0.15)", border: "1px solid rgba(74,222,128,0.2)" }}
-          >
-            <Leaf className="w-4 h-4 text-green-400" />
-          </div>
-          <div>
-            <p className="text-white leading-none" style={{ fontSize: "0.95rem", fontWeight: 700, letterSpacing: "-0.01em" }}>
-              FarmWeather <span className="text-green-400">UK</span>
-            </p>
-            <p style={{ fontSize: "0.55rem", letterSpacing: "0.12em", color: "rgba(134,239,172,0.45)", fontWeight: 600 }}>AGRICULTURAL INTELLIGENCE</p>
-          </div>
-        </div>
+        <FieldcastLogo size="sm" />
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-green-400" style={{ boxShadow: "0 0 8px rgba(74,222,128,0.8)" }} />
           <span style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.4)", fontWeight: 500 }}>Live · Met Office data</span>
@@ -143,8 +221,14 @@ export default function Landing() {
                 className="m-2 flex items-center gap-2 px-5 py-3 rounded-xl font-semibold text-white transition-all duration-150 hover:brightness-110 active:scale-95"
                 style={{ background: "linear-gradient(135deg,#16a34a,#15803d)", fontSize: "0.875rem", flexShrink: 0, boxShadow: "0 4px 12px rgba(22,163,74,0.4)" }}
               >
-                <Search className="w-4 h-4" />
-                <span className="hidden sm:inline" style={{ fontWeight: 600 }}>Search</span>
+                {searching ? (
+                  <span className="hidden sm:inline" style={{ fontWeight: 600 }}>Searching…</span>
+                ) : (
+                  <>
+                    <Search className="w-4 h-4" />
+                    <span className="hidden sm:inline" style={{ fontWeight: 600 }}>Search</span>
+                  </>
+                )}
               </button>
             </div>
           </form>
@@ -160,15 +244,25 @@ export default function Landing() {
                 boxShadow: "0 24px 64px rgba(0,0,0,0.6)",
               }}
             >
-              {filtered.length > 0 ? (
+              {searchErr && (
+                <div className="px-5 py-4" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                  <p style={{ fontSize: "0.78rem", color: "rgba(253,186,116,0.95)", fontWeight: 600 }}>
+                    {searchErr}
+                  </p>
+                </div>
+              )}
+
+              {results.length > 0 ? (
                 <>
                   <p style={{ fontSize: "0.65rem", letterSpacing: "0.1em", color: "rgba(255,255,255,0.25)", fontWeight: 600 }} className="px-5 pt-4 pb-2">
-                    {query ? "MATCHING LOCATIONS" : "POPULAR FARM REGIONS"}
+                    MATCHING LOCATIONS
                   </p>
-                  {filtered.map(s => (
+                  {results.map((r) => {
+                    const label = r.state ? `${r.name}, ${r.state}` : `${r.name}, ${r.country}`;
+                    return (
                     <button
-                      key={s}
-                      onMouseDown={() => handleSuggestion(s)}
+                      key={`${r.lat},${r.lon}`}
+                      onMouseDown={() => navigateToLocation(r)}
                       className="w-full flex items-center justify-between px-5 py-3.5 text-left transition-colors group"
                       style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}
                       onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
@@ -176,17 +270,43 @@ export default function Landing() {
                     >
                       <div className="flex items-center gap-3">
                         <MapPin className="w-3.5 h-3.5 text-green-500/50 flex-shrink-0 group-hover:text-green-400 transition-colors" />
-                        <span style={{ fontSize: "0.9rem", color: "rgba(255,255,255,0.65)", fontWeight: 400 }} className="group-hover:text-white transition-colors">{s}</span>
+                        <span style={{ fontSize: "0.9rem", color: "rgba(255,255,255,0.65)", fontWeight: 400 }} className="group-hover:text-white transition-colors">{label}</span>
                       </div>
                       <ArrowRight className="w-3.5 h-3.5 text-white/20 group-hover:text-green-400 transition-colors" />
                     </button>
-                  ))}
+                  )})}
                 </>
               ) : (
-                <div className="px-5 py-5 flex items-center gap-3">
-                  <Search className="w-4 h-4" style={{ color: "rgba(255,255,255,0.2)" }} />
-                  <span style={{ fontSize: "0.875rem", color: "rgba(255,255,255,0.35)" }}>No locations found — press Enter to search</span>
-                </div>
+                <>
+                  <p style={{ fontSize: "0.65rem", letterSpacing: "0.1em", color: "rgba(255,255,255,0.25)", fontWeight: 600 }} className="px-5 pt-4 pb-2">
+                    {query ? "SUGGESTED" : "POPULAR FARM REGIONS"}
+                  </p>
+                  {filteredFallback.length > 0 ? (
+                    filteredFallback.map((s) => (
+                      <button
+                        key={s}
+                        onMouseDown={() => handleFallbackSuggestion(s)}
+                        className="w-full flex items-center justify-between px-5 py-3.5 text-left transition-colors group"
+                        style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}
+                        onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
+                        onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                      >
+                        <div className="flex items-center gap-3">
+                          <MapPin className="w-3.5 h-3.5 text-green-500/50 flex-shrink-0 group-hover:text-green-400 transition-colors" />
+                          <span style={{ fontSize: "0.9rem", color: "rgba(255,255,255,0.65)", fontWeight: 400 }} className="group-hover:text-white transition-colors">{s}</span>
+                        </div>
+                        <ArrowRight className="w-3.5 h-3.5 text-white/20 group-hover:text-green-400 transition-colors" />
+                      </button>
+                    ))
+                  ) : (
+                    <div className="px-5 py-5 flex items-center gap-3">
+                      <Search className="w-4 h-4" style={{ color: "rgba(255,255,255,0.2)" }} />
+                      <span style={{ fontSize: "0.875rem", color: "rgba(255,255,255,0.35)" }}>
+                        {searching ? "Searching…" : "No locations found — press Enter to search"}
+                      </span>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}
@@ -197,7 +317,7 @@ export default function Landing() {
           {["Yorkshire", "Lincolnshire", "Devon", "Perthshire", "Cheshire", "Norfolk"].map(region => (
             <button
               key={region}
-              onClick={() => { setQuery(region); navigate("/dashboard"); }}
+              onClick={() => handleFallbackSuggestion(region)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all duration-150 hover:bg-white/10"
               style={{ border: "1px solid rgba(255,255,255,0.1)", fontSize: "0.75rem", color: "rgba(255,255,255,0.45)", fontWeight: 500 }}
             >
