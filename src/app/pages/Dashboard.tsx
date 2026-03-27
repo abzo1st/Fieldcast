@@ -1,0 +1,1157 @@
+import { useState } from "react";
+import type { ReactNode } from "react";
+import { useNavigate } from "react-router";
+import {
+  Leaf, MapPin, Wind, Droplets, CloudRain, Sun,
+  Snowflake, Layers, Tractor, ChevronDown,
+  AlertTriangle, Info,
+  Eye, Gauge, Sunrise, Sunset,
+  CircleCheck, FlaskConical, Waves,
+  ChartBar, ArrowRight, ArrowLeft, XCircle, AlertCircle,
+  Wifi, User, Plus, Shield, Zap, ChevronRight
+} from "lucide-react";
+import {
+  ComposedChart, Bar, Line, XAxis, YAxis,
+  CartesianGrid, Tooltip, ResponsiveContainer
+} from "recharts";
+import { ImageWithFallback } from "../components/figma/ImageWithFallback";
+
+const chartData = [
+  { day: "Tue", high: 7, low: 2, rain: 2 },
+  { day: "Wed", high: 6, low: 1, rain: 7 },
+  { day: "Thu", high: 5, low: -1, rain: 12 },
+  { day: "Fri", high: 5, low: 0, rain: 4 },
+  { day: "Sat", high: 9, low: 2, rain: 1 },
+  { day: "Sun", high: 11, low: 4, rain: 0 },
+  { day: "Mon", high: 9, low: 5, rain: 5 },
+];
+
+const forecast = [
+  { day: "Today", date: "24 Feb", emoji: "🌤️", cond: "Partly Cloudy",   hi: 7,  lo: 2,  rain: 20, rainMm: 2,  wind: 15, frost: "None",     note: "Fair – light work only" },
+  { day: "Wed",   date: "25 Feb", emoji: "☁️",  cond: "Overcast",       hi: 6,  lo: 1,  rain: 55, rainMm: 7,  wind: 20, frost: "Low",      note: "Further wetting expected" },
+  { day: "Thu",   date: "26 Feb", emoji: "🌧️",  cond: "Rain Showers",   hi: 5,  lo: -1, rain: 80, rainMm: 12, wind: 22, frost: "Moderate", note: "Risk of waterlogging" },
+  { day: "Fri",   date: "27 Feb", emoji: "🌥️",  cond: "Cloudy",         hi: 5,  lo: 0,  rain: 40, rainMm: 4,  wind: 16, frost: "Moderate", note: "Slow drainage" },
+  { day: "Sat",   date: "28 Feb", emoji: "🌤️",  cond: "Sunny Intervals",hi: 9,  lo: 2,  rain: 15, rainMm: 1,  wind: 10, frost: "Low",      note: "Improving – assess" },
+  { day: "Sun",   date: "1 Mar",  emoji: "☀️",  cond: "Sunny",          hi: 11, lo: 4,  rain: 5,  rainMm: 0,  wind: 8,  frost: "None",     note: "Good fieldwork window" },
+  { day: "Mon",   date: "2 Mar",  emoji: "🌦️",  cond: "Light Rain",     hi: 9,  lo: 5,  rain: 45, rainMm: 5,  wind: 14, frost: "None",     note: "Monitor closely" },
+];
+
+const frostColors: Record<string, string> = {
+  None:     "bg-emerald-100 text-emerald-700",
+  Low:      "bg-yellow-100  text-yellow-700",
+  Moderate: "bg-orange-100  text-orange-700",
+  High:     "bg-red-100     text-red-700",
+  Severe:   "bg-red-800     text-red-50",
+};
+
+function Chip({ label, color }: { label: string; color: string }) {
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border ${color}`}>
+      {label}
+    </span>
+  );
+}
+
+function MetricTile({
+  icon, label, value, sub, valueColor = "text-gray-800", badge
+}: {
+  icon: ReactNode; label: string; value: string;
+  sub?: string; valueColor?: string; badge?: ReactNode;
+}) {
+  return (
+    <div className="bg-white rounded-2xl p-4 flex flex-col gap-1" style={{ border: "1px solid #E4E7EA", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <span style={{ color: "#94a3b8" }}>{icon}</span>
+          <span style={{ fontSize: "0.6rem", fontWeight: 700, letterSpacing: "0.1em", color: "#94a3b8" }}>{label.toUpperCase()}</span>
+        </div>
+        {badge}
+      </div>
+      <p className={`font-bold leading-tight ${valueColor}`} style={{ fontSize: "1.25rem" }}>{value}</p>
+      {sub && <p style={{ fontSize: "0.72rem", color: "#94a3b8" }}>{sub}</p>}
+    </div>
+  );
+}
+
+export default function Dashboard() {
+  const [activeTab, setActiveTab] = useState<"overview" | "forecast" | "chart">("overview");
+  const [alertsOpen, setAlertsOpen] = useState(true);
+  const [forecastView, setForecastView] = useState<"hourly" | "daily" | "weekly" | "monthly">("daily");
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [activeProfile, setActiveProfile] = useState(0);
+  const [rainfallPeriod, setRainfallPeriod] = useState<"24h" | "7d" | "30d">("24h");
+  const [livestockOpen, setLivestockOpen] = useState(true);
+  const navigate = useNavigate();
+
+  const profiles = [
+    { name: "York Arable",           location: "York, Yorkshire",   type: "Arable",    area: "340 ac" },
+    { name: "Wensleydale Livestock",  location: "Hawes, N Yorks",    type: "Livestock", area: "180 ac" },
+    { name: "Norfolk Grain",          location: "Fakenham, Norfolk", type: "Arable",    area: "520 ac" },
+  ];
+
+  const rainfallData: Record<"24h" | "7d" | "30d", { amount: number; avg: number; label: string; status: string; statusColor: string; tip: string }> = {
+    "24h": { amount: 2.4, avg: 1.8, label: "Last 24 hours", status: "Above average",              statusColor: "text-amber-600", tip: "Fields accessible but monitor closely. Avoid low-lying areas." },
+    "7d":  { amount: 31,  avg: 18,  label: "Last 7 days",   status: "Significantly above average", statusColor: "text-red-600",   tip: "Soil is very wet. Heavy machinery should stay on headlands only." },
+    "30d": { amount: 74,  avg: 48,  label: "Last 30 days",  status: "Well above average",          statusColor: "text-red-500",   tip: "Prolonged wet period. Drainage checks essential before any fieldwork." },
+  };
+
+  return (
+    <div className="min-h-screen" style={{ backgroundColor: "#F2F4F6", fontFamily: "'Inter', system-ui, sans-serif" }}>
+
+      {/* HEADER */}
+      <header className="sticky top-0 z-50" style={{ background: "#0d1f14", borderBottom: "1px solid rgba(255,255,255,0.07)", boxShadow: "0 4px 32px rgba(0,0,0,0.4)" }}>
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
+
+          {/* Back + Logo */}
+          <div className="flex items-center gap-3 flex-shrink-0">
+            <button
+              onClick={() => navigate("/")}
+              className="flex items-center gap-1.5 text-white/50 hover:text-white/90 transition-colors pr-3 border-r border-white/10"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span className="hidden sm:inline text-xs">Home</span>
+            </button>
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "rgba(74,222,128,0.18)" }}>
+                <Leaf className="w-4 h-4 text-green-400" />
+              </div>
+              <div>
+                <p className="text-white leading-none" style={{ fontSize: "0.95rem", fontWeight: 600 }}>
+                  FarmWeather <span className="text-green-400">UK</span>
+                </p>
+                <p className="text-green-300/60 leading-none" style={{ fontSize: "0.6rem" }}>Agricultural Intelligence</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Farm Profile Switcher */}
+          <div className="relative">
+            <button
+              onClick={() => setProfileOpen(p => !p)}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl border border-white/10 text-white hover:bg-white/10 transition-colors"
+              style={{ background: "rgba(255,255,255,0.08)" }}
+            >
+              <MapPin className="w-3.5 h-3.5 text-green-400 flex-shrink-0" />
+              <div className="text-left hidden sm:block">
+                <p style={{ fontSize: "0.85rem" }}>{profiles[activeProfile].name}</p>
+                <p className="text-green-300/50 leading-none" style={{ fontSize: "0.6rem" }}>{profiles[activeProfile].type} · {profiles[activeProfile].area}</p>
+              </div>
+              <span className="sm:hidden" style={{ fontSize: "0.85rem" }}>{profiles[activeProfile].name.split(" ")[0]}</span>
+              <ChevronDown className={`w-3.5 h-3.5 text-white/30 ml-1 transition-transform ${profileOpen ? "rotate-180" : ""}`} />
+            </button>
+            {profileOpen && (
+              <div className="absolute top-full mt-2 left-0 w-68 bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden z-50" style={{ width: 272 }}>
+                <div className="px-4 py-3 border-b border-gray-100">
+                  <p className="text-gray-500 text-xs font-semibold uppercase tracking-widest">My Farm Profiles</p>
+                </div>
+                {profiles.map((p, i) => (
+                  <button key={i} onClick={() => { setActiveProfile(i); setProfileOpen(false); }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors ${i < profiles.length - 1 ? "border-b border-gray-50" : ""}`}>
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${activeProfile === i ? "bg-green-100 text-green-600" : "bg-gray-100 text-gray-400"}`}>
+                      <User className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1">
+                      <p className={`text-sm font-semibold ${activeProfile === i ? "text-green-700" : "text-gray-700"}`}>{p.name}</p>
+                      <p className="text-gray-400 text-xs">{p.location} · {p.type}</p>
+                    </div>
+                    {activeProfile === i && <CircleCheck className="w-4 h-4 text-green-500 flex-shrink-0" />}
+                  </button>
+                ))}
+                <button className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-green-50 transition-colors border-t border-gray-100">
+                  <div className="w-8 h-8 rounded-lg bg-green-50 border border-green-200 flex items-center justify-center flex-shrink-0">
+                    <Plus className="w-4 h-4 text-green-600" />
+                  </div>
+                  <p className="text-green-600 text-sm font-medium">Add new farm profile</p>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Date + Connectivity */}
+          <div className="hidden sm:flex flex-col items-end gap-1">
+            <p className="text-white/80 text-xs">Tuesday, 24 February 2026</p>
+            <div className="flex items-center gap-1.5">
+              <Wifi className="w-3 h-3 text-green-400" />
+              <p className="text-green-300/70" style={{ fontSize: "0.65rem" }}>Online · Updated 08:47</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 flex">
+          {(["overview", "forecast", "chart"] as const).map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className="relative px-5 py-3 text-sm transition-all duration-150"
+              style={{
+                fontWeight: activeTab === tab ? 600 : 400,
+                color: activeTab === tab ? "#4ade80" : "rgba(255,255,255,0.38)",
+                borderBottom: activeTab === tab ? "2px solid #4ade80" : "2px solid transparent",
+              }}
+            >
+              {tab === "chart" ? "7-Day Chart" : tab.charAt(0).toUpperCase() + tab.slice(1)}
+            </button>
+          ))}
+        </div>
+      </header>
+
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-7 space-y-6">
+
+        {/* HERO BANNER */}
+        <div className="rounded-2xl overflow-hidden relative" style={{ height: 190, boxShadow: "0 8px 40px rgba(0,0,0,0.18)" }}>
+          <ImageWithFallback
+            src="https://images.unsplash.com/photo-1604590627104-655d2be93b23?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxVSyUyMGZhcm1sYW5kJTIwZGF3biUyMGFlcmlhbCUyMGdvbGRlbiUyMGhvdXJ8ZW58MXx8fHwxNzcxOTgzNDMwfDA&ixlib=rb-4.1.0&q=80&w=1080"
+            alt="UK farm fields"
+            className="w-full h-full object-cover"
+          />
+          <div className="absolute inset-0" style={{ background: "linear-gradient(100deg,rgba(7,17,10,0.92) 0%,rgba(7,17,10,0.55) 55%,rgba(7,17,10,0.15) 100%)" }} />
+          <div className="absolute inset-0 flex items-center px-7 sm:px-10">
+            <div className="flex items-center gap-8">
+              <div>
+                <p style={{ fontSize: "0.62rem", fontWeight: 600, letterSpacing: "0.12em", color: "rgba(134,239,172,0.6)" }} className="mb-2">YORK, YORKSHIRE</p>
+                <div className="flex items-start gap-1.5">
+                  <span className="text-white leading-none" style={{ fontSize: "5.5rem", fontWeight: 300, letterSpacing: "-0.04em" }}>7</span>
+                  <span style={{ fontSize: "2rem", fontWeight: 300, color: "rgba(255,255,255,0.5)", marginTop: "0.7rem" }}>°C</span>
+                </div>
+                <p style={{ fontSize: "0.85rem", color: "rgba(255,255,255,0.5)", fontWeight: 400, marginTop: "2px" }}>Feels like 4°C · Partly Cloudy 🌤️</p>
+              </div>
+              <div className="hidden md:flex flex-col gap-2.5" style={{ borderLeft: "1px solid rgba(255,255,255,0.1)", paddingLeft: "2rem" }}>
+                {[
+                  { icon: <Wind className="w-3.5 h-3.5 text-amber-400" />, text: "15 mph NE", accent: "No spraying", accentColor: "#fcd34d" },
+                  { icon: <Droplets className="w-3.5 h-3.5 text-blue-400" />, text: "Humidity 78%", accent: null, accentColor: "" },
+                  { icon: <CloudRain className="w-3.5 h-3.5 text-sky-400" />, text: "2.4 mm today · 38 mm this month", accent: null, accentColor: "" },
+                  { icon: <Sun className="w-3.5 h-3.5 text-yellow-300" />, text: "UV Index 1 — Low", accent: null, accentColor: "" },
+                ].map((row, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    {row.icon}
+                    <span style={{ fontSize: "0.82rem", color: "rgba(255,255,255,0.65)", fontWeight: 400 }}>{row.text}</span>
+                    {row.accent && <span style={{ fontSize: "0.78rem", fontWeight: 600, color: row.accentColor }}>— {row.accent}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ALERTS */}
+        <div className="rounded-2xl overflow-hidden shadow-sm" style={{ border: "1px solid rgba(234,88,12,0.25)" }}>
+          {/* Collapsible header */}
+          <button
+            onClick={() => setAlertsOpen(prev => !prev)}
+            className="w-full flex items-center justify-between px-5 py-3.5 transition-colors"
+            style={{ background: "linear-gradient(135deg,#431407,#7c2d12)", borderBottom: alertsOpen ? "1px solid rgba(234,88,12,0.2)" : "none" }}
+          >
+            <div className="flex items-center gap-2.5">
+              <AlertTriangle className="w-4 h-4 text-orange-400" />
+              <span className="text-orange-100 font-semibold text-sm" style={{ letterSpacing: "0.01em" }}>Active Warnings</span>
+              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-orange-500 text-white text-xs font-bold" style={{ boxShadow: "0 2px 8px rgba(249,115,22,0.4)" }}>2</span>
+            </div>
+            <ChevronDown className={`w-4 h-4 text-orange-300/60 transition-transform duration-200 ${alertsOpen ? "rotate-180" : ""}`} />
+          </button>
+
+          {/* Collapsible body */}
+          {alertsOpen && (
+            <div className="bg-white divide-y" style={{ borderTop: "none" }}>
+              <div className="p-5 flex items-start gap-4">
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: "rgba(234,88,12,0.1)" }}>
+                  <AlertTriangle className="w-4.5 h-4.5 text-orange-500" style={{ width: "1.1rem", height: "1.1rem" }} />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                    <span className="px-2 py-0.5 rounded-md text-xs font-semibold" style={{ background: "rgba(234,88,12,0.1)", color: "#9a3412" }}>Warning</span>
+                    <span className="px-2 py-0.5 rounded-md text-xs font-medium" style={{ background: "#F2F4F6", color: "#64748b" }}>Met Office</span>
+                  </div>
+                  <p className="text-gray-900 font-semibold text-sm">Wind Advisory — Spraying Restricted</p>
+                  <p className="text-gray-500 text-xs mt-1 leading-relaxed">Sustained NE winds of 15 mph with gusts to 24 mph forecast through Thursday. No spray operations until conditions improve.</p>
+                  <p className="text-orange-400 text-xs mt-2 font-medium">Valid until Fri 27 Feb, 18:00</p>
+                </div>
+              </div>
+              <div className="p-5 flex items-start gap-4">
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: "rgba(245,158,11,0.1)" }}>
+                  <Info style={{ width: "1.1rem", height: "1.1rem", color: "#d97706" }} />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className="px-2 py-0.5 rounded-md text-xs font-semibold" style={{ background: "rgba(245,158,11,0.1)", color: "#92400e" }}>Advisory</span>
+                  </div>
+                  <p className="text-gray-900 font-semibold text-sm">Frost Risk — Thursday Night</p>
+                  <p className="text-gray-500 text-xs mt-1 leading-relaxed">Temperatures forecast to fall to -1°C overnight Thursday. Low risk of ground frost affecting field crops.</p>
+                  <p className="text-amber-400 text-xs mt-2 font-medium">Valid until Fri 27 Feb, 08:00</p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* OVERVIEW TAB */}
+        {activeTab === "overview" && (
+          <div className="space-y-6">
+
+            {/* HOURLY BREAKDOWN */}
+            <div className="bg-white rounded-2xl overflow-hidden" style={{ border: "1px solid #E4E7EA", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+              <div className="px-5 pt-4 pb-3 flex items-center justify-between" style={{ borderBottom: "1px solid #F1F3F5" }}>
+                <p className="text-gray-800 font-semibold text-sm">Hourly Forecast — Today</p>
+                <p style={{ fontSize: "0.72rem", color: "#94a3b8", fontWeight: 500 }}>Scroll to see full day →</p>
+              </div>
+              <div className="overflow-x-auto">
+                <div className="flex px-3 py-3 gap-1" style={{ minWidth: "max-content" }}>
+                  {[
+                    { time: "07:00", emoji: "🌫️", temp: 4,  rain: 5,  wind: 12, label: "Misty" },
+                    { time: "08:00", emoji: "🌤️", temp: 5,  rain: 5,  wind: 13, label: "Part cloud" },
+                    { time: "09:00", emoji: "🌤️", temp: 6,  rain: 10, wind: 14, label: "Part cloud" },
+                    { time: "10:00", emoji: "⛅",  temp: 6,  rain: 10, wind: 15, label: "Part cloud", now: true },
+                    { time: "11:00", emoji: "⛅",  temp: 7,  rain: 15, wind: 15, label: "Part cloud" },
+                    { time: "12:00", emoji: "🌥️", temp: 7,  rain: 20, wind: 16, label: "Mostly cloud" },
+                    { time: "13:00", emoji: "🌥️", temp: 7,  rain: 20, wind: 17, label: "Mostly cloud" },
+                    { time: "14:00", emoji: "🌥️", temp: 7,  rain: 25, wind: 18, label: "Mostly cloud" },
+                    { time: "15:00", emoji: "☁️",  temp: 6,  rain: 30, wind: 19, label: "Overcast" },
+                    { time: "16:00", emoji: "☁️",  temp: 6,  rain: 35, wind: 20, label: "Overcast" },
+                    { time: "17:00", emoji: "🌦️", temp: 5,  rain: 45, wind: 21, label: "Light rain" },
+                    { time: "18:00", emoji: "🌦️", temp: 5,  rain: 50, wind: 20, label: "Light rain" },
+                    { time: "19:00", emoji: "🌧️", temp: 4,  rain: 60, wind: 18, label: "Rain" },
+                    { time: "20:00", emoji: "🌧️", temp: 4,  rain: 55, wind: 17, label: "Rain" },
+                    { time: "21:00", emoji: "☁️",  temp: 3,  rain: 30, wind: 15, label: "Overcast" },
+                    { time: "22:00", emoji: "☁️",  temp: 3,  rain: 20, wind: 14, label: "Overcast" },
+                    { time: "23:00", emoji: "🌑",  temp: 2,  rain: 10, wind: 13, label: "Clear" },
+                  ].map((h) => (
+                    <div
+                      key={h.time}
+                      className={`flex flex-col items-center gap-2 px-3 py-3 rounded-2xl flex-shrink-0 relative ${
+                        h.now
+                          ? "bg-green-50 border border-green-200"
+                          : "hover:bg-gray-50 border border-transparent"
+                      }`}
+                      style={{ minWidth: 68 }}
+                    >
+                      {h.now && (
+                        <span className="absolute -top-1 left-1/2 -translate-x-1/2 text-xs px-2 py-0.5 rounded-full bg-green-500 text-white font-semibold" style={{ fontSize: "0.6rem" }}>NOW</span>
+                      )}
+                      <p className={`text-xs font-medium mt-1 ${h.now ? "text-green-700" : "text-gray-400"}`}>{h.time}</p>
+                      <span className="text-2xl">{h.emoji}</span>
+                      <p className={`font-semibold text-sm ${h.now ? "text-green-800" : "text-gray-700"}`}>{h.temp}°</p>
+                      {/* Rain bar */}
+                      <div className="w-full flex flex-col items-center gap-1">
+                        <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-blue-400"
+                            style={{ width: `${h.rain}%`, opacity: 0.7 + h.rain / 200 }}
+                          />
+                        </div>
+                        <p className="text-blue-500 font-medium" style={{ fontSize: "0.65rem" }}>{h.rain}%</p>
+                      </div>
+                      <div className="flex items-center gap-0.5">
+                        <Wind className="w-3 h-3 text-gray-300" />
+                        <p className="text-gray-400" style={{ fontSize: "0.65rem" }}>{h.wind}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {/* Legend */}
+              <div className="px-5 pb-3 flex items-center gap-4" style={{ borderTop: "1px solid #F8FAFC" }}>
+                <div className="flex items-center gap-1.5"><div className="w-3 h-1.5 rounded bg-blue-400" /><span style={{ fontSize: "0.68rem", color: "#94a3b8" }}>Rain chance</span></div>
+                <div className="flex items-center gap-1.5"><Wind className="w-3 h-3 text-gray-300" /><span style={{ fontSize: "0.68rem", color: "#94a3b8" }}>Wind (mph)</span></div>
+              </div>
+            </div>
+
+            {/* TODAY'S VERDICT */}
+            <div className="rounded-2xl p-6 flex items-center gap-5" style={{ background: "linear-gradient(135deg,#1c0a02 0%,#7c2d12 100%)", boxShadow: "0 8px 32px rgba(124,45,18,0.3)" }}>
+              <div className="text-6xl flex-shrink-0">⚠️</div>
+              <div className="flex-1">
+                <p className="text-amber-200 text-xs font-bold uppercase tracking-widest mb-2">Today's Verdict</p>
+                <p className="text-white font-bold" style={{ fontSize: "1.5rem", lineHeight: 1.2 }}>Caution — limited fieldwork only</p>
+                <p className="text-amber-100/90 mt-2" style={{ fontSize: "1rem", lineHeight: 1.6 }}>Winds too strong for spraying. Soil is wet. Do light inspections only and prepare crops for Thursday frost.</p>
+              </div>
+              <div className="hidden sm:flex flex-col items-center gap-1 flex-shrink-0 bg-white/10 rounded-2xl px-5 py-4">
+                <p className="text-amber-200 text-xs font-semibold">Daylight left</p>
+                <p className="text-white font-bold text-2xl">9h 28m</p>
+                <p className="text-amber-200/60 text-xs">Sets 17:42</p>
+              </div>
+            </div>
+
+            {/* CAN I...? QUICK CHECK */}
+            <div>
+              <div className="flex items-center gap-3 px-1 mb-4">
+                <p style={{ fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.1em", color: "#94a3b8" }}>CAN I… TODAY?</p>
+                <div className="flex-1 h-px bg-gray-200" />
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                {[
+                  { question: "Spray crops?",      status: "no",      icon: <FlaskConical className="w-5 h-5" />, reason: "Wind 15 mph — too high" },
+                  { question: "Use machinery?",    status: "caution", icon: <Tractor className="w-5 h-5" />,      reason: "Soil wet — headlands only" },
+                  { question: "Apply fertiliser?", status: "no",      icon: <Waves className="w-5 h-5" />,        reason: "Wind & rain risk" },
+                  { question: "Harvest?",          status: "no",      icon: <Layers className="w-5 h-5" />,       reason: "Soil too wet" },
+                  { question: "Field inspection?", status: "yes",     icon: <Eye className="w-5 h-5" />,          reason: "Good visibility" },
+                  { question: "Move livestock?",   status: "caution", icon: <Shield className="w-5 h-5" />,       reason: "Windy — shelter first" },
+                ].map(({ question, status, icon, reason }) => {
+                  const styles = {
+                    yes:     { bg: "bg-emerald-50 border-emerald-200", icon: "text-emerald-700 bg-emerald-100", label: "Yes",     labelColor: "text-emerald-700", reasonColor: "text-emerald-800", badge: <CircleCheck className="w-4 h-4 text-emerald-600" /> },
+                    caution: { bg: "bg-amber-50 border-amber-200",     icon: "text-amber-700 bg-amber-100",     label: "Caution", labelColor: "text-amber-700",   reasonColor: "text-amber-800",   badge: <AlertCircle className="w-4 h-4 text-amber-600" /> },
+                    no:      { bg: "bg-red-50 border-red-200",         icon: "text-red-700 bg-red-100",         label: "No",      labelColor: "text-red-700",     reasonColor: "text-red-800",     badge: <XCircle className="w-4 h-4 text-red-600" /> },
+                  }[status];
+                  return (
+                    <div key={question} className={`rounded-2xl border p-4 flex flex-col gap-2 ${styles.bg}`}>
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${styles.icon}`}>{icon}</div>
+                      <div>
+                        <p className="text-gray-900 font-bold text-sm leading-snug">{question}</p>
+                        <div className="flex items-center gap-1 mt-1">
+                          {styles.badge}
+                          <span className={`text-sm font-bold ${styles.labelColor}`}>{styles.label}</span>
+                        </div>
+                      </div>
+                      <p className={`text-xs font-semibold leading-snug ${styles.reasonColor}`}>{reason}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* SPRAY DRIFT RISK + RAINFALL ACCUMULATION */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+              {/* SPRAY DRIFT RISK INDICATOR */}
+              <div className="bg-white rounded-2xl overflow-hidden" style={{ border: "1px solid #fecaca", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
+                <div className="px-5 pt-5 pb-4 flex items-start justify-between" style={{ borderBottom: "1px solid #F1F3F5" }}>
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <Zap className="w-5 h-5 text-red-500" />
+                      <p className="text-gray-900 font-bold text-base">Spray Drift Risk</p>
+                    </div>
+                    <p style={{ fontSize: "0.75rem", color: "#94a3b8" }}>Based on wind speed, gusts & humidity</p>
+                  </div>
+                  <span className="px-3 py-1.5 rounded-lg text-white font-bold text-sm flex-shrink-0" style={{ background: "#ef4444", boxShadow: "0 2px 8px rgba(239,68,68,0.35)" }}>HIGH</span>
+                </div>
+                <div className="px-5 py-4 space-y-4">
+                  <div>
+                    <div className="flex gap-1.5 mb-1.5">
+                      {["Low","Moderate","High","Extreme"].map((l, i) => (
+                        <div key={l} className="flex-1 h-4 rounded-full flex items-center justify-center"
+                          style={{ backgroundColor: ["#10b981","#f59e0b","#ef4444","#7f1d1d"][i], opacity: i === 2 ? 1 : 0.3 }}>
+                          {i === 2 && <span className="text-white font-bold" style={{ fontSize: "0.55rem" }}>▲</span>}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex justify-between text-gray-500 font-medium" style={{ fontSize: "0.68rem" }}>
+                      <span>Low</span><span>Moderate</span><span className="text-red-600 font-bold">High</span><span>Extreme</span>
+                    </div>
+                  </div>
+                  {[
+                    { label: "Wind speed", value: "15 mph", note: "⚠️ Limit is 10 mph",      ok: false },
+                    { label: "Wind gusts", value: "24 mph", note: "⚠️ Severe drift risk",     ok: false },
+                    { label: "Humidity",   value: "78%",    note: "✅ Within safe range",      ok: true  },
+                  ].map(f => (
+                    <div key={f.label} className="flex items-center justify-between py-2.5 border-b border-gray-100 last:border-0">
+                      <span className="text-gray-600 font-medium text-sm">{f.label}</span>
+                      <div className="text-right">
+                        <p className="text-gray-900 font-bold text-sm">{f.value}</p>
+                        <p className={`text-xs font-semibold ${f.ok ? "text-emerald-700" : "text-red-600"}`}>{f.note}</p>
+                      </div>
+                    </div>
+                  ))}
+                  <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3">
+                    <p className="text-red-800 font-bold text-sm">Do not spray today.</p>
+                    <p className="text-red-700 text-xs mt-0.5 font-medium">Risk of drift onto neighbouring land and watercourses. Next safe window: Saturday morning.</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* RAINFALL ACCUMULATION TRACKER */}
+              <div className="bg-white rounded-2xl overflow-hidden" style={{ border: "1px solid #bae6fd", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
+                <div className="px-5 pt-5 pb-4 flex items-start justify-between" style={{ borderBottom: "1px solid #F1F3F5" }}>
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <CloudRain className="w-5 h-5 text-sky-500" />
+                      <p className="text-gray-900 font-bold text-base">Rainfall Accumulation</p>
+                    </div>
+                    <p style={{ fontSize: "0.75rem", color: "#94a3b8" }}>{rainfallData[rainfallPeriod].label}</p>
+                  </div>
+                  <div className="flex gap-1 bg-gray-100 rounded-xl p-1 flex-shrink-0">
+                    {(["24h","7d","30d"] as const).map(p => (
+                      <button key={p} onClick={() => setRainfallPeriod(p)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${rainfallPeriod === p ? "bg-white text-sky-600 shadow-sm" : "text-gray-500"}`}>
+                        {p}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="px-5 py-4 space-y-4">
+                  <div className="flex items-end gap-3">
+                    <p className="text-sky-600 font-bold" style={{ fontSize: "3rem", lineHeight: 1 }}>{rainfallData[rainfallPeriod].amount}</p>
+                    <div className="mb-1">
+                      <p className="text-sky-400 font-bold text-xl">mm</p>
+                      <p className={`text-xs font-bold ${rainfallData[rainfallPeriod].statusColor}`}>{rainfallData[rainfallPeriod].status}</p>
+                    </div>
+                  </div>
+                  <div className="space-y-2.5">
+                    <div>
+                      <div className="flex justify-between text-xs font-semibold text-gray-500 mb-1.5">
+                        <span>This period</span>
+                        <span className="text-sky-600">{rainfallData[rainfallPeriod].amount} mm</span>
+                      </div>
+                      <div className="w-full h-5 bg-gray-100 rounded-full overflow-hidden">
+                        <div className="h-full rounded-full bg-sky-400 transition-all duration-500"
+                          style={{ width: `${Math.min((rainfallData[rainfallPeriod].amount / (rainfallData[rainfallPeriod].avg * 1.8)) * 100, 100)}%` }} />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex justify-between text-xs font-semibold text-gray-500 mb-1.5">
+                        <span>Historical average</span>
+                        <span className="text-gray-500">{rainfallData[rainfallPeriod].avg} mm</span>
+                      </div>
+                      <div className="w-full h-5 bg-gray-100 rounded-full overflow-hidden">
+                        <div className="h-full rounded-full bg-gray-300 transition-all duration-500"
+                          style={{ width: `${Math.min((rainfallData[rainfallPeriod].avg / (rainfallData[rainfallPeriod].avg * 1.8)) * 100, 100)}%` }} />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="bg-sky-50 border border-sky-100 rounded-xl px-4 py-3">
+                    <p className="text-sky-800 text-sm font-semibold leading-relaxed">💧 {rainfallData[rainfallPeriod].tip}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* KEY CONDITIONS */}
+            <div>
+              <div className="flex items-center gap-3 px-1 mb-4">
+                <p style={{ fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.1em", color: "#94a3b8" }}>CURRENT CONDITIONS</p>
+                <div className="flex-1 h-px bg-gray-200" />
+              </div>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* Wind */}
+                <div className="bg-white rounded-2xl p-5" style={{ border: "1px solid #E4E7EA", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: "rgba(245,158,11,0.1)" }}>
+                      <Wind className="w-5 h-5 text-amber-500" />
+                    </div>
+                    <span className="text-xs font-semibold px-2.5 py-1 rounded-lg" style={{ background: "rgba(245,158,11,0.12)", color: "#b45309" }}>High</span>
+                  </div>
+                  <p style={{ fontSize: "0.7rem", color: "#94a3b8", fontWeight: 500, marginBottom: "4px" }}>Wind Speed</p>
+                  <p className="text-amber-600 font-bold" style={{ fontSize: "2rem", lineHeight: 1 }}>15 <span style={{ fontSize: "1rem", fontWeight: 500 }}>mph</span></p>
+                  <p style={{ fontSize: "0.72rem", color: "#94a3b8", marginTop: "6px" }}>Gusts to 24 mph · NE</p>
+                  <div className="mt-3 pt-3" style={{ borderTop: "1px solid #F1F3F5" }}>
+                    <p style={{ fontSize: "0.72rem", color: "#d97706", fontWeight: 600 }}>⚠️ Safe spraying limit is 10 mph</p>
+                  </div>
+                </div>
+
+                {/* Rainfall */}
+                <div className="bg-white rounded-2xl p-5" style={{ border: "1px solid #E4E7EA", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: "rgba(14,165,233,0.1)" }}>
+                      <CloudRain className="w-5 h-5 text-sky-500" />
+                    </div>
+                    <span className="text-xs font-semibold px-2.5 py-1 rounded-lg" style={{ background: "rgba(14,165,233,0.1)", color: "#0369a1" }}>Light</span>
+                  </div>
+                  <p style={{ fontSize: "0.7rem", color: "#94a3b8", fontWeight: 500, marginBottom: "4px" }}>Rainfall Today</p>
+                  <p className="text-sky-600 font-bold" style={{ fontSize: "2rem", lineHeight: 1 }}>2.4 <span style={{ fontSize: "1rem", fontWeight: 500 }}>mm</span></p>
+                  <p style={{ fontSize: "0.72rem", color: "#94a3b8", marginTop: "6px" }}>38 mm this month</p>
+                  <div className="mt-3 pt-3" style={{ borderTop: "1px solid #F1F3F5" }}>
+                    <p style={{ fontSize: "0.72rem", color: "#0ea5e9", fontWeight: 600 }}>🌧️ Heavy rain expected Thursday</p>
+                  </div>
+                </div>
+
+                {/* Soil Moisture */}
+                <div className="bg-white rounded-2xl p-5" style={{ border: "1px solid #E4E7EA", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: "rgba(59,130,246,0.1)" }}>
+                      <Layers className="w-5 h-5 text-blue-500" />
+                    </div>
+                    <span className="text-xs font-semibold px-2.5 py-1 rounded-lg" style={{ background: "rgba(59,130,246,0.1)", color: "#1d4ed8" }}>Wet</span>
+                  </div>
+                  <p style={{ fontSize: "0.7rem", color: "#94a3b8", fontWeight: 500, marginBottom: "4px" }}>Soil Moisture</p>
+                  <p className="text-blue-600 font-bold" style={{ fontSize: "2rem", lineHeight: 1 }}>76 <span style={{ fontSize: "1rem", fontWeight: 500 }}>%</span></p>
+                  <div className="mt-2 w-full h-1.5 rounded-full overflow-hidden" style={{ background: "#F1F3F5" }}>
+                    <div className="h-full rounded-full w-[76%]" style={{ background: "linear-gradient(90deg,#10b981,#3b82f6)" }} />
+                  </div>
+                  <div className="mt-3 pt-3" style={{ borderTop: "1px solid #F1F3F5" }}>
+                    <p style={{ fontSize: "0.72rem", color: "#3b82f6", fontWeight: 600 }}>⚠️ Avoid heavy machinery in fields</p>
+                  </div>
+                </div>
+
+                {/* Frost Risk */}
+                <div className="bg-white rounded-2xl p-5" style={{ border: "1px solid #E4E7EA", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: "rgba(99,102,241,0.1)" }}>
+                      <Snowflake className="w-5 h-5 text-indigo-400" />
+                    </div>
+                    <span className="text-xs font-semibold px-2.5 py-1 rounded-lg" style={{ background: "rgba(234,179,8,0.12)", color: "#854d0e" }}>Low</span>
+                  </div>
+                  <p style={{ fontSize: "0.7rem", color: "#94a3b8", fontWeight: 500, marginBottom: "4px" }}>Frost Risk</p>
+                  <p className="text-indigo-600 font-bold" style={{ fontSize: "2rem", lineHeight: 1 }}>Low</p>
+                  <p style={{ fontSize: "0.72rem", color: "#94a3b8", marginTop: "6px" }}>Soil temp 4°C at 10 cm depth</p>
+                  <div className="mt-3 pt-3" style={{ borderTop: "1px solid #F1F3F5" }}>
+                    <p style={{ fontSize: "0.72rem", color: "#6366f1", fontWeight: 600 }}>🌙 Risk rises Thursday night</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* LIVESTOCK ALERTS */}
+            <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid #E4E7EA", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
+              <button
+                onClick={() => setLivestockOpen(p => !p)}
+                className="w-full flex items-center justify-between px-5 py-4 transition-colors"
+                style={{ background: "#F8FAFB", borderBottom: livestockOpen ? "1px solid #E4E7EA" : "none" }}
+              >
+                <div className="flex items-center gap-2.5">
+                  <Shield className="w-4.5 h-4.5" style={{ width: "1.1rem", height: "1.1rem", color: "#7c3aed" }} />
+                  <span className="text-gray-800 font-semibold text-sm">Livestock Weather Alerts</span>
+                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full text-white text-xs font-bold" style={{ background: "#7c3aed", fontSize: "0.65rem" }}>3</span>
+                </div>
+                <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${livestockOpen ? "rotate-180" : ""}`} style={{ color: "#94a3b8" }} />
+              </button>
+              {livestockOpen && (
+                <div className="bg-white divide-y" style={{ borderColor: "#F1F3F5" }}>
+                  {[
+                    {
+                      icon: "💨", urgency: "Act today", urgencyColor: "bg-red-100 text-red-800 border-red-200",
+                      title: "Wind speeds dangerous for exposed animals",
+                      body: "Gusts up to 24 mph forecast. Move vulnerable livestock — lambs, young cattle — to sheltered fields or housing before this afternoon.",
+                      action: "Shelter animals by 14:00 today",
+                    },
+                    {
+                      icon: "❄️", urgency: "Act Thursday", urgencyColor: "bg-amber-100 text-amber-800 border-amber-200",
+                      title: "Frost risk — check overnight water supplies",
+                      body: "Temperatures dropping to -1°C Thursday night. Check water troughs for freezing. Ensure adequate bedding and overnight housing for vulnerable animals.",
+                      action: "Prepare before Thursday 17:00",
+                    },
+                    {
+                      icon: "🌧️", urgency: "Monitor this week", urgencyColor: "bg-sky-100 text-sky-800 border-sky-200",
+                      title: "Waterlogged pastures — risk to hoof health",
+                      body: "Heavy rain this week could leave pastures waterlogged. Prolonged standing in wet mud risks lameness and foot rot in cattle and sheep. Consider rotating grazing areas.",
+                      action: "Review field rotation plan",
+                    },
+                  ].map((alert, i) => (
+                    <div key={i} className="p-5 flex items-start gap-4">
+                      <div className="text-3xl flex-shrink-0 mt-1">{alert.icon}</div>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className={`text-xs font-bold px-2.5 py-1 rounded-full border ${alert.urgencyColor}`}>{alert.urgency}</span>
+                        </div>
+                        <p className="text-gray-900 font-bold text-sm mb-1">{alert.title}</p>
+                        <p className="text-gray-600 text-sm leading-relaxed mb-3">{alert.body}</p>
+                        <div className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 w-fit" style={{ background: "rgba(124,58,237,0.07)" }}>
+                          <ChevronRight className="w-3 h-3" style={{ color: "#7c3aed" }} />
+                          <p className="text-sm font-semibold" style={{ color: "#6d28d9" }}>{alert.action}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* SUNRISE / SUNSET */}
+            <div className="bg-white rounded-2xl p-4 flex items-center gap-4" style={{ border: "1px solid #E4E7EA", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
+              <div className="flex items-center gap-3">
+                <Sunrise className="w-5 h-5 text-amber-400" />
+                <div>
+                  <p style={{ fontSize: "0.68rem", color: "#94a3b8", fontWeight: 500 }}>Sunrise</p>
+                  <p className="text-gray-900 font-semibold">07:14</p>
+                </div>
+              </div>
+              <div className="flex-1 hidden sm:block px-4">
+                <div className="relative h-2 rounded-full overflow-hidden" style={{ background: "#F1F3F5" }}>
+                  <div className="absolute left-[30%] right-[27%] h-full rounded-full" style={{ background: "linear-gradient(90deg,#fbbf24,#fb923c)" }} />
+                  <div className="absolute top-1/2 left-[44%] -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-yellow-400 border-2 border-white shadow" />
+                </div>
+                <div className="flex justify-between mt-1.5" style={{ fontSize: "0.65rem", color: "#cbd5e1" }}>
+                  <span>Midnight</span><span>Now</span><span>Midnight</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="text-right">
+                  <p style={{ fontSize: "0.68rem", color: "#94a3b8", fontWeight: 500 }}>Sunset</p>
+                  <p className="text-gray-900 font-semibold">17:42</p>
+                </div>
+                <Sunset className="w-5 h-5 text-orange-400" />
+              </div>
+            </div>
+
+            {/* ACTIONS FOR TODAY */}
+            <div>
+              <div className="flex items-center gap-3 px-1 mb-4">
+                <p style={{ fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.1em", color: "#94a3b8" }}>WHAT TO DO TODAY</p>
+                <div className="flex-1 h-px bg-gray-200" />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {[
+                  {
+                    dot: "bg-red-500", bg: "border-red-100", icon: <FlaskConical className="w-5 h-5 text-red-500" />, iconBg: "bg-red-50 border-red-100",
+                    title: "Don't spray today",
+                    body: "Wind is 15 mph — too strong. Any spray will drift and could harm neighbouring land or watercourses.",
+                    footer: "✅ Saturday morning looks suitable",
+                    footerBg: "bg-red-50",
+                  },
+                  {
+                    dot: "bg-amber-400", bg: "border-amber-100", icon: <Snowflake className="w-5 h-5 text-amber-500" />, iconBg: "bg-amber-50 border-amber-100",
+                    title: "Prepare for Thursday frost",
+                    body: "Temperatures will drop to -1°C Thursday night. Cover any vulnerable crops — salad leaves, early brassicas — before Thursday evening.",
+                    footer: "⏰ Act before Thursday 17:00",
+                    footerBg: "bg-amber-50",
+                  },
+                  {
+                    dot: "bg-sky-400", bg: "border-sky-100", icon: <Waves className="w-5 h-5 text-sky-500" />, iconBg: "bg-sky-50 border-sky-100",
+                    title: "Check your field drains",
+                    body: "Soil is already wet and 12 mm of rain is coming Thursday. Make sure drains and ditches are clear to avoid waterlogging.",
+                    footer: "💧 Do this today if possible",
+                    footerBg: "bg-sky-50",
+                  },
+                ].map((a, i) => (
+                  <div key={i} className="bg-white rounded-2xl p-5 flex flex-col gap-3" style={{ border: "1px solid #E4E7EA", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${a.iconBg}`} style={{ border: "none" }}>{a.icon}</div>
+                    <div>
+                      <p className="text-gray-900 font-semibold text-sm">{a.title}</p>
+                      <p className="text-gray-500 text-sm mt-1.5 leading-relaxed">{a.body}</p>
+                    </div>
+                    <div className="rounded-xl px-3 py-2 mt-auto" style={{ background: "#F8FAFB" }}>
+                      <p className="text-gray-600 text-xs font-semibold">{a.footer}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+          </div>
+        )}
+
+        {/* FORECAST TAB */}
+        {activeTab === "forecast" && (
+          <div className="space-y-4">
+
+            {/* Sub-tab toggle */}
+            <div className="flex items-center gap-0.5 bg-white rounded-xl p-1 w-fit" style={{ border: "1px solid #E4E7EA", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
+              {(["hourly", "daily", "weekly", "monthly"] as const).map(v => (
+                <button
+                  key={v}
+                  onClick={() => setForecastView(v)}
+                  className="capitalize px-4 py-2 rounded-lg text-sm transition-all duration-150"
+                  style={{
+                    fontWeight: forecastView === v ? 600 : 400,
+                    background: forecastView === v ? "#16a34a" : "transparent",
+                    color: forecastView === v ? "#fff" : "#94a3b8",
+                    boxShadow: forecastView === v ? "0 2px 8px rgba(22,163,74,0.3)" : "none",
+                  }}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
+
+            {/* ── HOURLY ── */}
+            {forecastView === "hourly" && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-3 px-1">
+                  <p style={{ fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.1em", color: "#94a3b8" }}>HOURLY FORECAST — TODAY, 24 FEB</p>
+                  <div className="flex-1 h-px bg-gray-200" />
+                </div>
+                <div className="bg-white rounded-2xl overflow-hidden" style={{ border: "1px solid #E4E7EA", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
+                  <div className="overflow-x-auto">
+                    <div className="flex px-3 py-3 gap-1" style={{ minWidth: "max-content" }}>
+                      {[
+                        { time: "07:00", emoji: "🌫️", temp: 4,  rain: 5,  wind: 12 },
+                        { time: "08:00", emoji: "🌤️", temp: 5,  rain: 5,  wind: 13 },
+                        { time: "09:00", emoji: "🌤️", temp: 6,  rain: 10, wind: 14 },
+                        { time: "10:00", emoji: "⛅",  temp: 6,  rain: 10, wind: 15, now: true },
+                        { time: "11:00", emoji: "⛅",  temp: 7,  rain: 15, wind: 15 },
+                        { time: "12:00", emoji: "🌥️", temp: 7,  rain: 20, wind: 16 },
+                        { time: "13:00", emoji: "🌥️", temp: 7,  rain: 20, wind: 17 },
+                        { time: "14:00", emoji: "🌥️", temp: 7,  rain: 25, wind: 18 },
+                        { time: "15:00", emoji: "☁️",  temp: 6,  rain: 30, wind: 19 },
+                        { time: "16:00", emoji: "☁️",  temp: 6,  rain: 35, wind: 20 },
+                        { time: "17:00", emoji: "🌦️", temp: 5,  rain: 45, wind: 21 },
+                        { time: "18:00", emoji: "🌦️", temp: 5,  rain: 50, wind: 20 },
+                        { time: "19:00", emoji: "🌧️", temp: 4,  rain: 60, wind: 18 },
+                        { time: "20:00", emoji: "🌧️", temp: 4,  rain: 55, wind: 17 },
+                        { time: "21:00", emoji: "☁️",  temp: 3,  rain: 30, wind: 15 },
+                        { time: "22:00", emoji: "☁️",  temp: 3,  rain: 20, wind: 14 },
+                        { time: "23:00", emoji: "🌑",  temp: 2,  rain: 10, wind: 13 },
+                      ].map((h) => (
+                        <div
+                          key={h.time}
+                          className={`flex flex-col items-center gap-2 px-3 py-3 rounded-2xl flex-shrink-0 relative ${
+                            h.now ? "bg-green-50 border border-green-200" : "hover:bg-gray-50 border border-transparent"
+                          }`}
+                          style={{ minWidth: 72 }}
+                        >
+                          {h.now && (
+                            <span className="absolute -top-1 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full bg-green-500 text-white font-semibold" style={{ fontSize: "0.6rem" }}>NOW</span>
+                          )}
+                          <p className={`text-xs font-medium mt-1 ${h.now ? "text-green-700" : "text-gray-400"}`}>{h.time}</p>
+                          <span className="text-2xl">{h.emoji}</span>
+                          <p className={`font-semibold text-sm ${h.now ? "text-green-800" : "text-gray-700"}`}>{h.temp}°</p>
+                          <div className="w-full flex flex-col items-center gap-1">
+                            <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                              <div className="h-full rounded-full bg-blue-400" style={{ width: `${h.rain}%` }} />
+                            </div>
+                            <p className="text-blue-500 font-medium" style={{ fontSize: "0.65rem" }}>{h.rain}%</p>
+                          </div>
+                          <div className="flex items-center gap-0.5">
+                            <Wind className="w-3 h-3 text-gray-300" />
+                            <p className="text-gray-400" style={{ fontSize: "0.65rem" }}>{h.wind}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="px-5 py-3 flex items-center gap-4 border-t border-gray-100">
+                    <div className="flex items-center gap-1.5"><div className="w-3 h-1.5 rounded bg-blue-400" /><span className="text-gray-400" style={{ fontSize: "0.68rem" }}>Rain chance</span></div>
+                    <div className="flex items-center gap-1.5"><Wind className="w-3 h-3 text-gray-300" /><span className="text-gray-400" style={{ fontSize: "0.68rem" }}>Wind (mph)</span></div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { label: "Peak temperature",  value: "7°C",    sub: "Around 12:00–14:00", vc: "#f97316" },
+                    { label: "Highest rain risk",  value: "60%",    sub: "19:00 tonight",      vc: "#3b82f6" },
+                    { label: "Peak wind",          value: "21 mph", sub: "17:00 this evening",  vc: "#d97706" },
+                  ].map(s => (
+                    <div key={s.label} className="bg-white rounded-2xl p-4 text-center" style={{ border: "1px solid #E4E7EA", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
+                      <p style={{ fontSize: "0.7rem", color: "#94a3b8", fontWeight: 500, marginBottom: 4 }}>{s.label}</p>
+                      <p style={{ fontSize: "1.55rem", fontWeight: 700, color: s.vc, lineHeight: 1.1 }}>{s.value}</p>
+                      <p style={{ fontSize: "0.7rem", color: "#94a3b8", marginTop: 4 }}>{s.sub}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ── DAILY ── */}
+            {forecastView === "daily" && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-3 px-1">
+                  <p style={{ fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.1em", color: "#94a3b8" }}>7-DAY FORECAST — YORK, YORKSHIRE</p>
+                  <div className="flex-1 h-px bg-gray-200" />
+                </div>
+                <div className="overflow-x-auto pb-2 -mx-1 px-1">
+                  <div className="flex gap-3" style={{ minWidth: "max-content" }}>
+                    {forecast.map((d) => {
+                      const rainBar = Math.min((d.rainMm / 15) * 100, 100);
+                      const isToday = d.day === "Today";
+                      return (
+                        <div key={d.day} className="rounded-2xl p-4 flex-shrink-0"
+                          style={{ minWidth: 156, background: isToday ? "linear-gradient(145deg,#f0fdf4,#e8faf0)" : "white", border: isToday ? "1px solid #86efac" : "1px solid #E4E7EA", boxShadow: isToday ? "0 4px 20px rgba(34,197,94,0.15)" : "0 1px 4px rgba(0,0,0,0.05)" }}>
+                          <div className="flex items-center justify-between mb-2">
+                            <div>
+                              <p className={`font-semibold text-sm ${isToday ? "text-green-800" : "text-gray-700"}`}>{d.day}</p>
+                              <p className="text-gray-400" style={{ fontSize: "0.68rem" }}>{d.date}</p>
+                            </div>
+                            {isToday && <span className="text-xs px-1.5 py-0.5 rounded-full bg-green-500 text-white font-medium">Now</span>}
+                          </div>
+                          <div className="flex items-center gap-2 mb-3">
+                            <span className="text-3xl">{d.emoji}</span>
+                            <p className="text-gray-500 text-xs leading-tight">{d.cond}</p>
+                          </div>
+                          <div className="flex items-end gap-1 mb-3">
+                            <span className="font-semibold text-gray-700" style={{ fontSize: "1.5rem", lineHeight: 1 }}>{d.hi}°</span>
+                            <span className="text-gray-400 text-sm mb-0.5">/ {d.lo}°</span>
+                          </div>
+                          <div className="mb-3">
+                            <div className="flex items-center justify-between mb-1">
+                              <div className="flex items-center gap-1">
+                                <CloudRain className="w-3 h-3 text-blue-400" />
+                                <span className="text-gray-400" style={{ fontSize: "0.68rem" }}>{d.rain}%</span>
+                              </div>
+                              <span className="text-blue-600 font-medium" style={{ fontSize: "0.68rem" }}>{d.rainMm}mm</span>
+                            </div>
+                            <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                              <div className="h-full rounded-full bg-blue-400" style={{ width: `${rainBar}%` }} />
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1 mb-3">
+                            <Wind className="w-3 h-3 text-gray-400" />
+                            <span className="text-gray-500" style={{ fontSize: "0.68rem" }}>{d.wind} mph</span>
+                          </div>
+                          {d.frost !== "None" && (
+                            <div className={`flex items-center gap-1 px-2 py-1 rounded-lg mb-2 ${frostColors[d.frost]}`}>
+                              <Snowflake className="w-3 h-3" />
+                              <span style={{ fontSize: "0.65rem" }} className="font-medium">Frost: {d.frost}</span>
+                            </div>
+                          )}
+                          <p className="text-gray-400 leading-snug" style={{ fontSize: "0.63rem" }}>{d.note}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { label: "Total Rainfall (7 days)", value: "31 mm",  sub: "Above average",         vc: "#2563eb" },
+                    { label: "Best Fieldwork Day",      value: "Sunday", sub: "1 Mar · Sunny · 11°C",  vc: "#059669" },
+                    { label: "Frost Risk Days",         value: "3",      sub: "Thu, Fri, Sat nights",   vc: "#ea580c" },
+                  ].map(s => (
+                    <div key={s.label} className="bg-white rounded-2xl p-4 text-center" style={{ border: "1px solid #E4E7EA", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
+                      <p style={{ fontSize: "0.7rem", color: "#94a3b8", fontWeight: 500, marginBottom: 4 }}>{s.label}</p>
+                      <p style={{ fontSize: "1.55rem", fontWeight: 700, color: s.vc, lineHeight: 1.1 }}>{s.value}</p>
+                      <p style={{ fontSize: "0.7rem", color: "#94a3b8", marginTop: 4 }}>{s.sub}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ── WEEKLY ── */}
+            {forecastView === "weekly" && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-3 px-1">
+                  <p style={{ fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.1em", color: "#94a3b8" }}>4-WEEK OUTLOOK — YORK, YORKSHIRE</p>
+                  <div className="flex-1 h-px bg-gray-200" />
+                </div>
+                <div className="space-y-3">
+                  {[
+                    { week: "This week", dates: "24 Feb – 2 Mar", emoji: "🌧️", summary: "Wet and windy", hi: 11, lo: -1, rain: 31, wind: 22, frost: "Moderate", fieldwork: "Poor",    fieldColor: "bg-red-100 text-red-700 border-red-200",         note: "Heavy rain mid-week. Frost risk Thursday night. Best window Sunday." },
+                    { week: "Week 2",    dates: "3 – 9 Mar",      emoji: "🌤️", summary: "Improving, drier", hi: 13, lo: 2, rain: 12, wind: 14, frost: "Low",  fieldwork: "Fair",    fieldColor: "bg-amber-100 text-amber-700 border-amber-200",   note: "Pressure building mid-week. Good opportunity for light cultivation." },
+                    { week: "Week 3",    dates: "10 – 16 Mar",    emoji: "⛅",  summary: "Mixed spells",  hi: 12, lo: 3, rain: 18, wind: 16, frost: "Low",      fieldwork: "Fair",    fieldColor: "bg-amber-100 text-amber-700 border-amber-200",   note: "Unsettled at start, drier towards weekend. Monitor closely." },
+                    { week: "Week 4",    dates: "17 – 23 Mar",    emoji: "☀️", summary: "Settled & warm", hi: 15, lo: 5, rain: 6,  wind: 10, frost: "None",    fieldwork: "Good",    fieldColor: "bg-emerald-100 text-emerald-700 border-emerald-200", note: "Good fieldwork window likely. Ideal for spraying and sowing." },
+                  ].map((w, i) => (
+                    <div key={i} className="bg-white rounded-2xl p-5" style={{ border: "1px solid #E4E7EA", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
+                      <div className="flex items-start gap-4">
+                        <div className="text-4xl flex-shrink-0 mt-1">{w.emoji}</div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 flex-wrap mb-2">
+                            <div>
+                              <p className="text-gray-900 font-semibold">{w.week}</p>
+                              <p style={{ fontSize: "0.72rem", color: "#94a3b8" }}>{w.dates}</p>
+                            </div>
+                            <span className={`text-xs font-semibold px-2.5 py-1 rounded-lg border ${w.fieldColor}`}>
+                              Fieldwork: {w.fieldwork}
+                            </span>
+                          </div>
+                          <p className="text-gray-500 text-sm mb-3">{w.summary}</p>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-3">
+                            {[
+                              { bg: "#F8FAFB", label: "High / Low",    value: `${w.hi}° / ${w.lo}°`, labelColor: "#94a3b8", valueColor: "#1e293b" },
+                              { bg: "#EFF6FF", label: "Est. Rainfall", value: `${w.rain} mm`,          labelColor: "#60a5fa", valueColor: "#1d4ed8" },
+                              { bg: "#FFFBEB", label: "Peak Wind",     value: `${w.wind} mph`,          labelColor: "#fbbf24", valueColor: "#b45309" },
+                              { bg: "#EEF2FF", label: "Frost Risk",    value: w.frost,                 labelColor: "#818cf8", valueColor: "#4338ca" },
+                            ].map(cell => (
+                              <div key={cell.label} className="rounded-xl px-3 py-2 text-center" style={{ background: cell.bg }}>
+                                <p style={{ fontSize: "0.65rem", color: cell.labelColor, fontWeight: 500 }}>{cell.label}</p>
+                                <p style={{ fontSize: "0.9rem", fontWeight: 700, color: cell.valueColor }}>{cell.value}</p>
+                              </div>
+                            ))}
+                          </div>
+                          <p style={{ fontSize: "0.75rem", color: "#94a3b8", lineHeight: 1.6 }}>💡 {w.note}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="rounded-2xl p-4 flex items-start gap-3" style={{ background: "#FFFBEB", border: "1px solid #fde68a" }}>
+                  <Info className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+                  <p style={{ fontSize: "0.78rem", color: "#92400e", lineHeight: 1.6 }}>Weekly and extended forecasts become less accurate beyond 5 days. Use these as general planning guidance only and check daily closer to the time.</p>
+                </div>
+              </div>
+            )}
+
+            {/* ── MONTHLY ── */}
+            {forecastView === "monthly" && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-3 px-1">
+                  <p style={{ fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.1em", color: "#94a3b8" }}>MONTHLY OVERVIEW — MARCH 2026</p>
+                  <div className="flex-1 h-px bg-gray-200" />
+                </div>
+
+                {/* Calendar grid */}
+                <div className="bg-white rounded-2xl overflow-hidden" style={{ border: "1px solid #E4E7EA", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
+                  <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: "1px solid #F1F3F5" }}>
+                    <p className="text-gray-900 font-semibold">March 2026</p>
+                    <span style={{ fontSize: "0.72rem", color: "#94a3b8" }}>Indicative outlook only</span>
+                  </div>
+                  <div className="p-4">
+                    <div className="grid grid-cols-7 mb-2">
+                      {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map(d => (
+                        <div key={d} className="text-center text-gray-400 font-semibold" style={{ fontSize: "0.68rem" }}>{d}</div>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-7 gap-1">
+                      {([
+                        { blank: true }, { blank: true }, { blank: true }, { blank: true }, { blank: true }, { blank: true },
+                        { day: 1,  emoji: "☀️",  hi: 11, type: "good" },
+                        { day: 2,  emoji: "🌦️", hi: 9,  type: "caution" },
+                        { day: 3,  emoji: "🌤️", hi: 10, type: "good" },
+                        { day: 4,  emoji: "⛅",  hi: 11, type: "ok" },
+                        { day: 5,  emoji: "🌥️", hi: 12, type: "ok" },
+                        { day: 6,  emoji: "☁️",  hi: 11, type: "caution" },
+                        { day: 7,  emoji: "🌧️", hi: 9,  type: "poor" },
+                        { day: 8,  emoji: "🌧️", hi: 8,  type: "poor" },
+                        { day: 9,  emoji: "🌦️", hi: 9,  type: "caution" },
+                        { day: 10, emoji: "⛅",  hi: 11, type: "ok" },
+                        { day: 11, emoji: "🌤️", hi: 12, type: "good" },
+                        { day: 12, emoji: "☀️",  hi: 13, type: "good" },
+                        { day: 13, emoji: "☀️",  hi: 14, type: "good" },
+                        { day: 14, emoji: "🌤️", hi: 13, type: "good" },
+                        { day: 15, emoji: "⛅",  hi: 12, type: "ok" },
+                        { day: 16, emoji: "🌥️", hi: 11, type: "caution" },
+                        { day: 17, emoji: "☁️",  hi: 10, type: "caution" },
+                        { day: 18, emoji: "🌦️", hi: 11, type: "caution" },
+                        { day: 19, emoji: "🌤️", hi: 13, type: "good" },
+                        { day: 20, emoji: "☀️",  hi: 14, type: "good" },
+                        { day: 21, emoji: "☀️",  hi: 15, type: "good" },
+                        { day: 22, emoji: "☀️",  hi: 15, type: "good" },
+                        { day: 23, emoji: "🌤️", hi: 14, type: "good" },
+                        { day: 24, emoji: "⛅",  hi: 13, type: "ok" },
+                        { day: 25, emoji: "🌥️", hi: 12, type: "caution" },
+                        { day: 26, emoji: "🌦️", hi: 11, type: "caution" },
+                        { day: 27, emoji: "🌧️", hi: 10, type: "poor" },
+                        { day: 28, emoji: "🌦️", hi: 11, type: "caution" },
+                        { day: 29, emoji: "🌤️", hi: 13, type: "good" },
+                        { day: 30, emoji: "☀️",  hi: 14, type: "good" },
+                        { day: 31, emoji: "☀️",  hi: 15, type: "good" },
+                      ] as Array<{ blank: true } | { day: number; emoji: string; hi: number; type: string }>).map((cell, i) => {
+                        if ("blank" in cell) return <div key={`b${i}`} />;
+                        const TODAY_DAY = 1;
+                        const isToday = cell.day === TODAY_DAY;
+                        const bg: Record<string,string> = { good: "bg-emerald-50", ok: "bg-gray-50", caution: "bg-amber-50", poor: "bg-red-50" };
+                        const tempColor: Record<string,string> = { good: "text-emerald-600", ok: "text-gray-600", caution: "text-amber-600", poor: "text-red-500" };
+                        return (
+                          <div
+                            key={cell.day}
+                            className={`rounded-xl p-1.5 flex flex-col items-center gap-0.5 relative ${isToday ? "" : bg[cell.type]}`}
+                            style={{
+                              border: isToday ? "2px solid #3b82f6" : "1px solid transparent",
+                              boxShadow: isToday ? "0 0 0 3px rgba(59,130,246,0.15)" : "none",
+                              background: isToday ? "#eff6ff" : undefined,
+                            }}
+                          >
+                            {isToday && (
+                              <span
+                                className="absolute -top-2.5 left-1/2 -translate-x-1/2 text-white rounded-full leading-none"
+                                style={{ background: "#3b82f6", fontSize: "0.5rem", fontWeight: 700, paddingTop: "2px", paddingBottom: "2px", paddingLeft: "5px", paddingRight: "5px", letterSpacing: "0.04em", whiteSpace: "nowrap" }}
+                              >
+                                TODAY
+                              </span>
+                            )}
+                            <p className="font-semibold" style={{ fontSize: "0.65rem", color: isToday ? "#1d4ed8" : "#6b7280" }}>
+                              {cell.day}
+                            </p>
+                            <span style={{ fontSize: "1rem" }}>{cell.emoji}</span>
+                            <p className={`font-semibold ${isToday ? "text-blue-700" : tempColor[cell.type]}`} style={{ fontSize: "0.65rem" }}>{cell.hi}°</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="flex flex-wrap gap-3 mt-4 pt-3" style={{ borderTop: "1px solid #F1F3F5" }}>
+                      {[
+                        { bg: "#d1fae5", border: "#6ee7b7", label: "Good fieldwork", thick: false },
+                        { bg: "#f1f5f9", border: "#cbd5e1", label: "Acceptable",      thick: false },
+                        { bg: "#fef3c7", border: "#fcd34d", label: "Caution",         thick: false },
+                        { bg: "#fee2e2", border: "#fca5a5", label: "Poor",            thick: false },
+                        { bg: "#eff6ff", border: "#3b82f6", label: "Today",           thick: true  },
+                      ].map(l => (
+                        <div key={l.label} className="flex items-center gap-1.5">
+                          <div className="w-3 h-3 rounded" style={{ background: l.bg, border: `${l.thick ? "2px" : "1px"} solid ${l.border}` }} />
+                          <span style={{ fontSize: "0.68rem", color: "#94a3b8" }}>{l.label}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {[
+                    { label: "Est. Monthly Rainfall", value: "62 mm", sub: "Avg: 48 mm",         vc: "#2563eb" },
+                    { label: "Good Fieldwork Days",   value: "14",    sub: "of 31 days",          vc: "#059669" },
+                    { label: "Frost Risk Nights",     value: "4",     sub: "Early March mainly",  vc: "#6366f1" },
+                    { label: "Avg Max Temperature",   value: "12°C",  sub: "Across the month",    vc: "#f97316" },
+                  ].map(s => (
+                    <div key={s.label} className="bg-white rounded-2xl p-4 text-center" style={{ border: "1px solid #E4E7EA", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
+                      <p style={{ fontSize: "0.7rem", color: "#94a3b8", fontWeight: 500, marginBottom: 4 }}>{s.label}</p>
+                      <p style={{ fontSize: "1.5rem", fontWeight: 700, color: s.vc, lineHeight: 1.1 }}>{s.value}</p>
+                      <p style={{ fontSize: "0.7rem", color: "#94a3b8", marginTop: 4 }}>{s.sub}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="rounded-2xl p-4 flex items-start gap-3" style={{ background: "#FFFBEB", border: "1px solid #fde68a" }}>
+                  <Info className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+                  <p style={{ fontSize: "0.78rem", color: "#92400e", lineHeight: 1.6 }}>Monthly data is an indicative outlook based on seasonal trends and medium-range modelling. Accuracy decreases significantly beyond 10 days. Always check the daily or hourly view closer to the time.</p>
+                </div>
+              </div>
+            )}
+
+          </div>
+        )}
+
+        {/* CHART TAB */}
+        {activeTab === "chart" && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-3 px-1">
+              <p style={{ fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.1em", color: "#94a3b8" }}>7-DAY WEATHER TREND</p>
+              <div className="flex-1 h-px bg-gray-200" />
+            </div>
+            <div className="bg-white rounded-2xl p-6" style={{ border: "1px solid #E4E7EA", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
+              <div className="flex items-center gap-2 mb-6">
+                <ChartBar className="w-4 h-4 text-gray-400" />
+                <p className="text-gray-800 font-semibold text-sm">Temperature & Rainfall Outlook</p>
+              </div>
+              <div style={{ height: 320 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={chartData} margin={{ top: 5, right: 20, left: 5, bottom: 5 }}>
+                    <defs>
+                      <linearGradient id="rainGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8} />
+                        <stop offset="95%" stopColor="#60a5fa" stopOpacity={0.4} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                    <XAxis dataKey="day" tick={{ fill: "#94a3b8", fontSize: 12 }} axisLine={false} tickLine={false} />
+                    <YAxis yAxisId="t" orientation="left" tick={{ fill: "#94a3b8", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `${v}°`} domain={["dataMin - 3", "dataMax + 3"]} />
+                    <YAxis yAxisId="r" orientation="right" tick={{ fill: "#94a3b8", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `${v}mm`} />
+                    <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e5e7eb", boxShadow: "0 8px 24px rgba(0,0,0,0.1)", fontSize: 12 }} />
+                    <Bar yAxisId="r" dataKey="rain" name="Rainfall (mm)" fill="url(#rainGrad)" radius={[4, 4, 0, 0]} maxBarSize={36} />
+                    <Line yAxisId="t" type="monotone" dataKey="low" name="Min Temp (°C)" stroke="#2563eb" strokeWidth={2.5} strokeDasharray="5 3" dot={{ fill: "#2563eb", r: 4, strokeWidth: 0 }} activeDot={{ r: 6 }} />
+                    <Line yAxisId="t" type="monotone" dataKey="high" name="Max Temp (°C)" stroke="#f97316" strokeWidth={2.5} dot={{ fill: "#f97316", r: 4, strokeWidth: 0 }} activeDot={{ r: 6 }} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="flex flex-wrap gap-5 mt-4 pt-4" style={{ borderTop: "1px solid #F1F3F5" }}>
+                <div className="flex items-center gap-2"><div className="w-6 h-0.5 bg-orange-400 rounded" /><span style={{ fontSize: "0.75rem", color: "#64748b" }}>Max temp</span></div>
+                <div className="flex items-center gap-2"><div className="w-6 border-t-2 border-dashed border-blue-500" /><span style={{ fontSize: "0.75rem", color: "#64748b" }}>Min temp</span></div>
+                <div className="flex items-center gap-2"><div className="w-4 h-4 rounded" style={{ background: "rgba(59,130,246,0.5)" }} /><span style={{ fontSize: "0.75rem", color: "#64748b" }}>Rainfall (mm)</span></div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl p-6" style={{ border: "1px solid #E4E7EA", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
+              <p className="text-gray-800 font-semibold text-sm mb-4">Soil Moisture Forecast (7-day outlook)</p>
+              <div className="space-y-2">
+                {[
+                  { day: "Tue 24", pct: 76, status: "Wet",         color: "#3b82f6" },
+                  { day: "Wed 25", pct: 82, status: "Wet",         color: "#3b82f6" },
+                  { day: "Thu 26", pct: 91, status: "Waterlogged", color: "#7c3aed" },
+                  { day: "Fri 27", pct: 88, status: "Wet",         color: "#3b82f6" },
+                  { day: "Sat 28", pct: 81, status: "Wet",         color: "#3b82f6" },
+                  { day: "Sun 1",  pct: 73, status: "Wet",         color: "#3b82f6" },
+                  { day: "Mon 2",  pct: 75, status: "Wet",         color: "#3b82f6" },
+                ].map(row => (
+                  <div key={row.day} className="flex items-center gap-3">
+                    <span style={{ fontSize: "0.75rem", color: "#94a3b8", fontWeight: 500 }} className="w-12">{row.day}</span>
+                    <div className="flex-1 h-3 rounded-full overflow-hidden" style={{ background: "#F1F3F5" }}>
+                      <div className="h-full rounded-full transition-all" style={{ width: `${row.pct}%`, backgroundColor: row.color, opacity: 0.75 }} />
+                    </div>
+                    <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "#374151" }} className="w-10 text-right">{row.pct}%</span>
+                    <span style={{ fontSize: "0.75rem", color: "#94a3b8" }} className="w-20">{row.status}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-4 mt-4 pt-4" style={{ borderTop: "1px solid #F1F3F5" }}>
+                <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-full bg-amber-400" /><span style={{ fontSize: "0.75rem", color: "#94a3b8" }}>Dry</span></div>
+                <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-full bg-emerald-400" /><span style={{ fontSize: "0.75rem", color: "#94a3b8" }}>Optimal</span></div>
+                <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-full bg-blue-400" /><span style={{ fontSize: "0.75rem", color: "#94a3b8" }}>Wet</span></div>
+                <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-full bg-purple-600" /><span style={{ fontSize: "0.75rem", color: "#94a3b8" }}>Waterlogged</span></div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <footer className="text-center py-6" style={{ borderTop: "1px solid #E4E7EA" }}>
+          <div className="flex items-center justify-center gap-2 mb-2">
+            <div className="w-1.5 h-1.5 rounded-full bg-green-500" style={{ boxShadow: "0 0 6px rgba(74,222,128,0.7)" }} />
+            <p style={{ fontSize: "0.72rem", color: "#94a3b8", fontWeight: 500 }}>FarmWeather UK · Agricultural weather intelligence</p>
+          </div>
+          <p style={{ fontSize: "0.68rem", color: "#cbd5e1" }}>Always cross-reference with Met Office alerts before critical decisions · AHDB guidance aligned</p>
+        </footer>
+      </main>
+    </div>
+  );
+}
