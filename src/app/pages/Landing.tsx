@@ -3,7 +3,8 @@ import { useNavigate } from "react-router";
 import { MapPin, Search, Wind, CloudRain, Thermometer, Shield, ArrowRight } from "lucide-react";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { FieldcastLogo } from "../components/FieldcastLogo";
-import { openWeatherGeocodeDirect, type GeoDirectResult } from "../api/openweather";
+import { searchLocations } from "../api/locationSearch";
+import type { GeoDirectResult } from "../api/openweather";
 
 const BG = "https://images.unsplash.com/photo-1604590627104-655d2be93b23?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxVSyUyMGZhcm1sYW5kJTIwZGF3biUyMGFlcmlhbCUyMGdvbGRlbiUyMGhvdXJ8ZW58MXx8fHwxNzcxOTgzNDMwfDA&ixlib=rb-4.1.0&q=80&w=1080";
 
@@ -54,7 +55,7 @@ export default function Landing() {
     setSearching(true);
     setSearchErr(null);
     const t = window.setTimeout(() => {
-      openWeatherGeocodeDirect(q, 6)
+      searchLocations(q, 6)
         .then((r) => {
           if (cancelled) return;
           setResults(r);
@@ -103,7 +104,7 @@ export default function Landing() {
     try {
       setSearching(true);
       setSearchErr(null);
-      const r = await openWeatherGeocodeDirect(q, 1);
+      const r = await searchLocations(q, 1);
       if (r[0]) navigateToLocation(r[0]);
       else setSearchErr("No matching locations found");
     } catch (err: unknown) {
@@ -120,7 +121,7 @@ export default function Landing() {
       try {
         setSearching(true);
         setSearchErr(null);
-        const r = await openWeatherGeocodeDirect(s, 1);
+        const r = await searchLocations(s, 1);
         if (r[0]) navigateToLocation(r[0]);
         else setSearchErr("No matching locations found");
       } catch (err: unknown) {
