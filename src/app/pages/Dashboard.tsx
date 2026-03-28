@@ -1526,9 +1526,8 @@ export default function Dashboard() {
         <footer className="text-center py-6" style={{ borderTop: "1px solid #E4E7EA" }}>
           <div className="flex items-center justify-center gap-2 mb-2">
             <div className="w-1.5 h-1.5 rounded-full bg-green-500" style={{ boxShadow: "0 0 6px rgba(74,222,128,0.7)" }} />
-            <p style={{ fontSize: "0.72rem", color: "#94a3b8", fontWeight: 500 }}>Fieldcast · Agricultural weather intelligence</p>
+            <p style={{ fontSize: "0.72rem", color: "#94a3b8", fontWeight: 500 }}>Fieldcast · Agricultural Weather Intelligence</p>
           </div>
-          <p style={{ fontSize: "0.68rem", color: "#cbd5e1" }}>Always cross-reference with Met Office alerts before critical decisions · AHDB guidance aligned</p>
         </footer>
       </main>
     </div>
