@@ -157,7 +157,7 @@ export default function Landing() {
         <FieldcastLogo size="sm" />
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-green-400" style={{ boxShadow: "0 0 8px rgba(74,222,128,0.8)" }} />
-          <span style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.4)", fontWeight: 500 }}>Live · Met Office data</span>
+          <span style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.4)", fontWeight: 500 }}>Live · OpenWeather Data</span>
         </div>
       </nav>
 
@@ -171,7 +171,7 @@ export default function Landing() {
         >
           <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
           <span style={{ fontSize: "0.72rem", color: "rgba(134,239,172,0.85)", fontWeight: 600, letterSpacing: "0.06em" }}>
-            TRUSTED BY 2,400+ UK FARMERS
+            LAUNCHING SOON
           </span>
         </div>
 
@@ -180,8 +180,8 @@ export default function Landing() {
           className="text-white text-center mb-5 leading-none"
           style={{ fontSize: "clamp(2.2rem, 5.5vw, 4rem)", fontWeight: 800, letterSpacing: "-0.03em", maxWidth: "700px" }}
         >
-          Weather built for<br />
-          <span style={{ color: "#4ade80" }}>UK farmers.</span>
+          Weather Built for<br />
+          <span style={{ color: "#4ade80" }}>Farmers.</span>
         </h1>
 
         <p
@@ -347,7 +347,7 @@ export default function Landing() {
       {/* Footer strip */}
       <div className="relative z-10 flex items-center justify-center pb-6">
         <p style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.2)", fontWeight: 400, letterSpacing: "0.02em" }}>
-          Met Office data · Updated every 30 min · Built for UK agriculture
+          OpenWeather Data · Updated every 30 min · Built for UK agriculture
         </p>
       </div>
 
