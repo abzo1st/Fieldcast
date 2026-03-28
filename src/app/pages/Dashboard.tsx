@@ -8,7 +8,7 @@ import {
   Eye, Gauge, Sunrise, Sunset,
   CircleCheck, FlaskConical, Waves,
   ChartBar, ArrowRight, ArrowLeft, XCircle, AlertCircle,
-  Wifi, Shield, Zap, ChevronRight
+  Wifi, Shield, Zap, ChevronRight, Search
 } from "lucide-react";
 import {
   ComposedChart, Bar, Line, XAxis, YAxis,
@@ -16,7 +16,8 @@ import {
 } from "recharts";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { FieldcastLogo } from "../components/FieldcastLogo";
-import { openWeatherOneCall, type OneCallResponse } from "../api/openweather";
+import { openWeatherOneCall, type GeoDirectResult, type OneCallResponse } from "../api/openweather";
+import { searchLocations } from "../api/locationSearch";
 
 function msToMph(ms: number) {
   return ms * 2.2369362920544;
@@ -113,6 +114,11 @@ export default function Dashboard() {
   const [oneCall, setOneCall] = useState<OneCallResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadErr, setLoadErr] = useState<string | null>(null);
+  const [locQuery, setLocQuery] = useState("");
+  const [locFocused, setLocFocused] = useState(false);
+  const [locResults, setLocResults] = useState<GeoDirectResult[]>([]);
+  const [locSearching, setLocSearching] = useState(false);
+  const [locSearchErr, setLocSearchErr] = useState<string | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
   const params = useParams();
@@ -171,6 +177,82 @@ export default function Dashboard() {
     }
     return out;
   }, [recentLocations]);
+
+  function navigateToLocationFromSearch(loc: { name: string; lat: number; lon: number; country?: string; state?: string }) {
+    const display = loc.state ? `${loc.name}, ${loc.state}` : loc.country ? `${loc.name}, ${loc.country}` : loc.name;
+    const entry: SavedLocation = { name: display, lat: loc.lat, lon: loc.lon };
+    localStorage.setItem("fieldcast:lastLocation", JSON.stringify(entry));
+    const prev: SavedLocation[] = (() => {
+      try {
+        const raw = localStorage.getItem("fieldcast:recentLocations");
+        const parsed = raw ? (JSON.parse(raw) as SavedLocation[]) : [];
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    })();
+    const deduped = [entry, ...prev.filter((p) => !(Math.abs(p.lat - entry.lat) < 0.001 && Math.abs(p.lon - entry.lon) < 0.001))].slice(0, 12);
+    localStorage.setItem("fieldcast:recentLocations", JSON.stringify(deduped));
+    const slug = slugify(display);
+    navigate(`/location/${slug}?name=${encodeURIComponent(display)}&lat=${loc.lat}&lon=${loc.lon}`);
+    setLocQuery("");
+    setLocResults([]);
+    setLocSearchErr(null);
+    setProfileOpen(false);
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    const q = locQuery.trim();
+    if (!locFocused) return;
+    if (q.length < 2) {
+      setLocResults([]);
+      setLocSearchErr(null);
+      setLocSearching(false);
+      return;
+    }
+
+    setLocSearching(true);
+    setLocSearchErr(null);
+    const t = window.setTimeout(() => {
+      searchLocations(q, 6)
+        .then((r) => {
+          if (cancelled) return;
+          setLocResults(r);
+        })
+        .catch((e: unknown) => {
+          if (cancelled) return;
+          setLocResults([]);
+          setLocSearchErr(e instanceof Error ? e.message : "Location search failed");
+        })
+        .finally(() => {
+          if (cancelled) return;
+          setLocSearching(false);
+        });
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+    };
+  }, [locQuery, locFocused]);
+
+  const handleLocSearchSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const q = locQuery.trim();
+    if (!q) return;
+    try {
+      setLocSearching(true);
+      setLocSearchErr(null);
+      const r = await searchLocations(q, 1);
+      if (r[0]) navigateToLocationFromSearch(r[0]);
+      else setLocSearchErr("No matching locations found");
+    } catch (err: unknown) {
+      setLocSearchErr(err instanceof Error ? err.message : "Location search failed");
+    } finally {
+      setLocSearching(false);
+    }
+  };
 
   useEffect(() => {
     if (!effectiveLocation) return;
@@ -321,11 +403,12 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: "#F2F4F6", fontFamily: "'Inter', system-ui, sans-serif" }}>
+    <div className="min-h-screen" style={{ backgroundColor: "#F2F4F6" }}>
 
       {/* HEADER */}
       <header className="sticky top-0 z-50" style={{ background: "#0d1f14", borderBottom: "1px solid rgba(255,255,255,0.07)", boxShadow: "0 4px 32px rgba(0,0,0,0.4)" }}>
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+        <div className="h-16 flex items-center justify-between gap-4">
 
           {/* Back + Logo */}
           <div className="flex items-center gap-3 flex-shrink-0">
@@ -397,6 +480,92 @@ export default function Dashboard() {
               </p>
             </div>
           </div>
+        </div>
+
+        {/* Location search */}
+        <div className="relative pb-3">
+          <form onSubmit={handleLocSearchSubmit}>
+            <div
+              className="flex items-center rounded-xl overflow-visible transition-all duration-200"
+              style={{
+                background: "rgba(255,255,255,0.08)",
+                border: locFocused ? "1px solid rgba(74,222,128,0.45)" : "1px solid rgba(255,255,255,0.1)",
+                boxShadow: locFocused ? "0 0 0 3px rgba(74,222,128,0.12)" : "none",
+              }}
+            >
+              <Search className="w-3.5 h-3.5 text-green-400/80 ml-3 flex-shrink-0" />
+              <input
+                type="text"
+                value={locQuery}
+                onChange={(e) => setLocQuery(e.target.value)}
+                onFocus={() => setLocFocused(true)}
+                onBlur={() => setTimeout(() => setLocFocused(false), 180)}
+                placeholder="Search another location…"
+                className="flex-1 min-w-0 bg-transparent outline-none px-3 py-2.5 text-white placeholder:text-white/35"
+                style={{ fontSize: "0.8125rem" }}
+                autoComplete="off"
+                aria-label="Search for a location"
+              />
+              <button
+                type="submit"
+                disabled={locSearching || !locQuery.trim()}
+                className="m-1 flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+                style={{ background: "linear-gradient(135deg,#16a34a,#15803d)" }}
+              >
+                {locSearching ? "…" : "Go"}
+              </button>
+            </div>
+          </form>
+
+          {locFocused && (
+            <div
+              className="absolute left-0 right-0 top-full mt-1 rounded-xl overflow-hidden z-[60]"
+              style={{
+                background: "#f8fafc",
+                border: "1px solid #e2e8f0",
+                boxShadow: "0 20px 50px rgba(0,0,0,0.2)",
+              }}
+            >
+              {locSearchErr && (
+                <div className="px-4 py-3 border-b border-amber-100 bg-amber-50">
+                  <p className="text-amber-800 text-xs font-medium">{locSearchErr}</p>
+                </div>
+              )}
+              {locQuery.trim().length === 0 && !locSearchErr && (
+                <p className="px-4 py-3 text-xs text-slate-500">Town, city, or UK postcode</p>
+              )}
+              {locResults.length > 0 ? (
+                <>
+                  <p className="text-[0.65rem] font-semibold tracking-widest text-slate-400 px-4 pt-3 pb-1">RESULTS</p>
+                  {locResults.map((r) => {
+                    const label = r.state ? `${r.name}, ${r.state}` : `${r.name}, ${r.country}`;
+                    return (
+                      <button
+                        key={`${r.lat},${r.lon}`}
+                        type="button"
+                        onMouseDown={() => navigateToLocationFromSearch(r)}
+                        className="w-full flex items-center justify-between gap-2 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-100 border-t border-slate-100 first:border-t-0"
+                      >
+                        <span className="flex items-center gap-2 min-w-0">
+                          <MapPin className="w-3.5 h-3.5 text-green-600 flex-shrink-0" />
+                          <span className="truncate">{label}</span>
+                        </span>
+                        <ArrowRight className="w-3.5 h-3.5 text-slate-300 flex-shrink-0" />
+                      </button>
+                    );
+                  })}
+                </>
+              ) : (
+                locQuery.trim().length >= 2 && !locSearching && !locSearchErr && (
+                  <p className="px-4 py-3 text-xs text-slate-500">No matches — try a town or UK postcode</p>
+                )
+              )}
+              {locQuery.trim().length > 0 && locQuery.trim().length < 2 && (
+                <p className="px-4 py-3 text-xs text-slate-500">Type at least 2 characters</p>
+              )}
+            </div>
+          )}
+        </div>
         </div>
 
         {/* Tabs */}

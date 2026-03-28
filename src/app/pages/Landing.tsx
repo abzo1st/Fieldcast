@@ -133,7 +133,7 @@ export default function Landing() {
   };
 
   return (
-    <div className="relative min-h-screen flex flex-col overflow-hidden" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
+    <div className="relative min-h-screen flex flex-col overflow-hidden">
 
       {/* Background */}
       <div className="absolute inset-0">
