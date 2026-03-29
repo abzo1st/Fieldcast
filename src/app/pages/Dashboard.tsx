@@ -8,7 +8,7 @@ import {
   Eye, Gauge, Sunrise, Sunset,
   CircleCheck, FlaskConical, Waves,
   ChartBar, ArrowRight, ArrowLeft, XCircle, AlertCircle,
-  Wifi, Shield, Zap, ChevronRight, Search
+  Wifi, Shield, Zap, ChevronRight, Search, BookmarkPlus, X
 } from "lucide-react";
 import {
   ComposedChart, Bar, Line, XAxis, YAxis,
@@ -58,6 +58,23 @@ function getIconEmoji(icon: string | undefined) {
 }
 
 type SavedLocation = { name: string; lat: number; lon: number };
+
+const STORAGE_SAVED = "fieldcast:savedLocations";
+
+function locationsMatch(a: SavedLocation, b: SavedLocation) {
+  return Math.abs(a.lat - b.lat) < 0.001 && Math.abs(a.lon - b.lon) < 0.001;
+}
+
+function readSavedFromStorage(): SavedLocation[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_SAVED);
+    const parsed = raw ? (JSON.parse(raw) as SavedLocation[]) : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((l) => Number.isFinite(l.lat) && Number.isFinite(l.lon));
+  } catch {
+    return [];
+  }
+}
 
 function slugify(input: string) {
   return input
@@ -135,23 +152,6 @@ export default function Dashboard() {
     return { lat, lon };
   }, [urlLat, urlLon]);
 
-  const defaultLocations: SavedLocation[] = [
-    { name: "York, Yorkshire", lat: 53.959, lon: -1.081 },
-    { name: "Exeter, Devon", lat: 50.718, lon: -3.533 },
-    { name: "Norwich, Norfolk", lat: 52.631, lon: 1.297 },
-    { name: "Inverness, Scotland", lat: 57.477, lon: -4.224 },
-  ];
-
-  const recentLocations = useMemo(() => {
-    try {
-      const raw = localStorage.getItem("fieldcast:recentLocations");
-      const parsed = raw ? (JSON.parse(raw) as SavedLocation[]) : [];
-      return Array.isArray(parsed) ? parsed.slice(0, 12) : [];
-    } catch {
-      return [];
-    }
-  }, [location.search]);
-
   const effectiveLocation = useMemo<SavedLocation | null>(() => {
     if (coordsFromUrl) {
       return { name: urlName ?? "Selected location", ...coordsFromUrl };
@@ -167,17 +167,34 @@ export default function Dashboard() {
     }
   }, [coordsFromUrl, urlName]);
 
-  const switchableLocations = useMemo(() => {
-    const source = [...recentLocations, ...defaultLocations];
-    const out: SavedLocation[] = [];
-    for (const l of source) {
-      if (!Number.isFinite(l.lat) || !Number.isFinite(l.lon)) continue;
-      if (out.some((o) => Math.abs(o.lat - l.lat) < 0.001 && Math.abs(o.lon - l.lon) < 0.001)) continue;
-      out.push(l);
-      if (out.length >= 12) break;
-    }
-    return out;
-  }, [recentLocations]);
+  const [savedLocations, setSavedLocations] = useState<SavedLocation[]>(() => readSavedFromStorage());
+
+  const currentIsSaved = useMemo(() => {
+    if (!effectiveLocation) return false;
+    return savedLocations.some((s) => locationsMatch(s, effectiveLocation));
+  }, [effectiveLocation, savedLocations]);
+
+  function persistSaved(next: SavedLocation[]) {
+    localStorage.setItem(STORAGE_SAVED, JSON.stringify(next));
+    setSavedLocations(next);
+  }
+
+  function addCurrentLocationToSaved() {
+    if (!effectiveLocation) return;
+    const next = [effectiveLocation, ...savedLocations.filter((s) => !locationsMatch(s, effectiveLocation))];
+    persistSaved(next);
+  }
+
+  function removeSaved(entry: SavedLocation) {
+    persistSaved(savedLocations.filter((s) => !locationsMatch(s, entry)));
+  }
+
+  function goToSavedLocation(p: SavedLocation) {
+    localStorage.setItem("fieldcast:lastLocation", JSON.stringify(p));
+    const slug = slugify(p.name);
+    navigate(`/location/${slug}?name=${encodeURIComponent(p.name)}&lat=${p.lat}&lon=${p.lon}`);
+    setProfileOpen(false);
+  }
 
   function navigateToLocationFromSearch(loc: { name: string; lat: number; lon: number; country?: string; state?: string }) {
     const display = loc.state ? `${loc.name}, ${loc.state}` : loc.country ? `${loc.name}, ${loc.country}` : loc.name;
@@ -475,26 +492,52 @@ export default function Dashboard() {
                 <div className="px-4 py-3 border-b border-gray-100">
                   <p className="text-gray-500 text-xs font-semibold uppercase tracking-widest">Saved Locations</p>
                 </div>
-                {switchableLocations.map((p, i) => (
+                {savedLocations.length === 0 ? (
+                  <p className="px-4 py-3 text-xs text-gray-500">No saved places yet. Add the map location you’re viewing with “Save current” below.</p>
+                ) : (
+                  savedLocations.map((p, i) => (
+                    <div
+                      key={`${p.lat},${p.lon}`}
+                      className={`flex items-stretch gap-0 ${i < savedLocations.length - 1 ? "border-b border-gray-50" : ""}`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => goToSavedLocation(p)}
+                        className="flex-1 min-w-0 flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors"
+                      >
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${slugify(p.name) === activeLocationSlug ? "bg-green-100 text-green-600" : "bg-gray-100 text-gray-400"}`}>
+                          <MapPin className="w-4 h-4" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-sm font-semibold truncate ${slugify(p.name) === activeLocationSlug ? "text-green-700" : "text-gray-700"}`}>{p.name}</p>
+                          <p className="text-gray-400 text-xs">{p.lat.toFixed(3)}, {p.lon.toFixed(3)}</p>
+                        </div>
+                        {slugify(p.name) === activeLocationSlug && <CircleCheck className="w-4 h-4 text-green-500 flex-shrink-0" />}
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Remove ${p.name} from saved`}
+                        className="px-2.5 text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors flex-shrink-0"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeSaved(p);
+                        }}
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))
+                )}
+                {effectiveLocation && !currentIsSaved && (
                   <button
-                    key={`${p.lat},${p.lon}`}
-                    onClick={() => {
-                      const slug = slugify(p.name);
-                      navigate(`/location/${slug}?name=${encodeURIComponent(p.name)}&lat=${p.lat}&lon=${p.lon}`);
-                      setProfileOpen(false);
-                    }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors ${i < switchableLocations.length - 1 ? "border-b border-gray-50" : ""}`}
+                    type="button"
+                    onClick={() => addCurrentLocationToSaved()}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 text-left text-sm font-semibold text-green-700 bg-green-50/80 hover:bg-green-50 border-t border-gray-100 transition-colors"
                   >
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${slugify(p.name) === activeLocationSlug ? "bg-green-100 text-green-600" : "bg-gray-100 text-gray-400"}`}>
-                      <MapPin className="w-4 h-4" />
-                    </div>
-                    <div className="flex-1">
-                      <p className={`text-sm font-semibold ${slugify(p.name) === activeLocationSlug ? "text-green-700" : "text-gray-700"}`}>{p.name}</p>
-                      <p className="text-gray-400 text-xs">{p.lat.toFixed(3)}, {p.lon.toFixed(3)}</p>
-                    </div>
-                    {slugify(p.name) === activeLocationSlug && <CircleCheck className="w-4 h-4 text-green-500 flex-shrink-0" />}
+                    <BookmarkPlus className="w-4 h-4 flex-shrink-0" />
+                    Save current location
                   </button>
-                ))}
+                )}
               </div>
             )}
           </div>
