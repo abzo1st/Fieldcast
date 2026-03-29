@@ -119,6 +119,7 @@ export default function Dashboard() {
   const [locResults, setLocResults] = useState<GeoDirectResult[]>([]);
   const [locSearching, setLocSearching] = useState(false);
   const [locSearchErr, setLocSearchErr] = useState<string | null>(null);
+  const [isCompactHeader, setIsCompactHeader] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const params = useParams();
@@ -253,6 +254,27 @@ export default function Dashboard() {
       setLocSearching(false);
     }
   };
+
+  useEffect(() => {
+  let lastY = window.scrollY;
+
+  const onScroll = () => {
+    const currentY = window.scrollY;
+
+    if (currentY <= 40) {
+      setIsCompactHeader(false);
+    } else if (currentY > lastY + 2) {
+      setIsCompactHeader(true);
+    } else if (currentY < lastY - 8) {
+      setIsCompactHeader(false);
+    }
+
+    lastY = currentY;
+  };
+
+  window.addEventListener("scroll", onScroll, { passive: true });
+  return () => window.removeEventListener("scroll", onScroll);
+}, []);
 
   useEffect(() => {
     if (!effectiveLocation) return;
@@ -406,10 +428,21 @@ export default function Dashboard() {
     <div className="min-h-screen" style={{ backgroundColor: "#F2F4F6" }}>
 
       {/* HEADER */}
-      <header className="sticky top-0 z-50" style={{ background: "#0d1f14", borderBottom: "1px solid rgba(255,255,255,0.07)", boxShadow: "0 4px 32px rgba(0,0,0,0.4)" }}>
+      <header 
+        className="sticky top-0 z-50 transition-all duration-300" 
+        style={{
+          background: "#0d1f14",
+          borderBottom: "1px solid rgba(255,255,255,0.07)",
+          boxShadow: isCompactHeader
+          ? "0 4px 18px rgba(0,0,0,0.22)"
+          : "0 4px 32px rgba(0,0,0,0.4)",
+        }}
+        >
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
-        <div className="h-16 flex items-center justify-between gap-4">
-
+        <div
+        className="flex items-center justify-between gap-4 transition-all duration-300"
+        style={{ height: isCompactHeader ? "54px" : "64px" }}
+        >
           {/* Back + Logo */}
           <div className="flex items-center gap-3 flex-shrink-0">
             <button
@@ -467,7 +500,13 @@ export default function Dashboard() {
           </div>
 
           {/* Date + Connectivity */}
-          <div className="hidden sm:flex flex-col items-end gap-1">
+          <div
+          className="hidden sm:flex flex-col items-end gap-1 transition-all duration-300 overflow-hidden"
+          style={{
+            maxWidth: isCompactHeader ? "0px" : "220px",
+            opacity: isCompactHeader ? 0 : 1,
+            }}
+>
             <p className="text-white/80 text-xs">
               {liveCurrent
                 ? new Date(liveCurrent.dt * 1000).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" })
@@ -483,7 +522,16 @@ export default function Dashboard() {
         </div>
 
         {/* Location search */}
-        <div className="relative pb-3">
+        <div
+        className="relative transition-all duration-300 overflow-hidden"
+        style={{
+          paddingBottom: isCompactHeader ? "0px" : "12px",
+          maxHeight: isCompactHeader ? "0px" : "88px",
+          opacity: isCompactHeader ? 0 : 1,
+          transform: isCompactHeader ? "translateY(-8px)" : "translateY(0)",
+          pointerEvents: isCompactHeader ? "none" : "auto",
+          }}
+>
           <form onSubmit={handleLocSearchSubmit}>
             <div
               className="flex items-center rounded-xl overflow-visible transition-all duration-200"
@@ -569,18 +617,25 @@ export default function Dashboard() {
         </div>
 
         {/* Tabs */}
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 flex">
+        <div
+        className="max-w-6xl mx-auto px-4 sm:px-6 flex transition-all duration-300"
+        style={{ minHeight: isCompactHeader ? "40px" : "48px" }}
+        >
           {(["overview", "forecast", "chart"] as const).map(tab => (
             <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className="relative px-5 py-3 text-sm transition-all duration-150"
-              style={{
-                fontWeight: activeTab === tab ? 600 : 400,
-                color: activeTab === tab ? "#4ade80" : "rgba(255,255,255,0.38)",
-                borderBottom: activeTab === tab ? "2px solid #4ade80" : "2px solid transparent",
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className="relative text-sm transition-all duration-300"
+            style={{
+              paddingLeft: isCompactHeader ? "1rem" : "1.25rem",
+              paddingRight: isCompactHeader ? "1rem" : "1.25rem",
+              paddingTop: isCompactHeader ? "0.65rem" : "0.75rem",
+              paddingBottom: isCompactHeader ? "0.65rem" : "0.75rem",
+              fontWeight: activeTab === tab ? 600 : 400,
+              color: activeTab === tab ? "#4ade80" : "rgba(255,255,255,0.38)",
+              borderBottom: activeTab === tab ? "2px solid #4ade80" : "2px solid transparent",
               }}
-            >
+>
               {tab === "chart" ? "7-Day Chart" : tab.charAt(0).toUpperCase() + tab.slice(1)}
             </button>
           ))}
