@@ -90,7 +90,7 @@ export default function Landing() {
         return [];
       }
     })();
-    const deduped = [entry, ...prev.filter((p) => !(Math.abs(p.lat - entry.lat) < 0.001 && Math.abs(p.lon - entry.lon) < 0.001))].slice(0, 12);
+    const deduped = [entry, ...prev.filter((p) => !(Math.abs(p.lat - entry.lat) < 0.001 && Math.abs(p.lon - entry.lon) < 0.001))].slice(0, 5);
     localStorage.setItem("fieldcast:recentLocations", JSON.stringify(deduped));
     const slug = slugify(display);
     navigate(`/location/${slug}?name=${encodeURIComponent(display)}&lat=${loc.lat}&lon=${loc.lon}`);

@@ -8,7 +8,7 @@ import {
   Eye, Gauge, Sunrise, Sunset,
   CircleCheck, FlaskConical, Waves,
   ChartBar, ArrowRight, ArrowLeft, XCircle, AlertCircle,
-  Wifi, Shield, Zap, ChevronRight, Search, BookmarkPlus, X
+  Wifi, Shield, Zap, ChevronRight, Search, BookmarkPlus, X, History
 } from "lucide-react";
 import {
   ComposedChart, Bar, Line, XAxis, YAxis,
@@ -60,6 +60,8 @@ function getIconEmoji(icon: string | undefined) {
 type SavedLocation = { name: string; lat: number; lon: number };
 
 const STORAGE_SAVED = "fieldcast:savedLocations";
+const STORAGE_RECENT = "fieldcast:recentLocations";
+const RECENT_MAX = 5;
 
 function locationsMatch(a: SavedLocation, b: SavedLocation) {
   return Math.abs(a.lat - b.lat) < 0.001 && Math.abs(a.lon - b.lon) < 0.001;
@@ -137,6 +139,7 @@ export default function Dashboard() {
   const [locSearching, setLocSearching] = useState(false);
   const [locSearchErr, setLocSearchErr] = useState<string | null>(null);
   const [isCompactHeader, setIsCompactHeader] = useState(false);
+  const [recentTick, setRecentTick] = useState(0);
   const navigate = useNavigate();
   const location = useLocation();
   const params = useParams();
@@ -167,6 +170,26 @@ export default function Dashboard() {
     }
   }, [coordsFromUrl, urlName]);
 
+  const recentLocations = useMemo(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_RECENT);
+      const parsed = raw ? (JSON.parse(raw) as SavedLocation[]) : [];
+      const arr = Array.isArray(parsed) ? parsed : [];
+      return arr
+        .filter((l) => Number.isFinite(l.lat) && Number.isFinite(l.lon))
+        .slice(0, RECENT_MAX);
+    } catch {
+      return [];
+    }
+  }, [location.search, locFocused, recentTick]);
+
+  const locQueryTrim = locQuery.trim();
+  const filteredRecentLocations = useMemo(() => {
+    if (!locQueryTrim) return recentLocations;
+    const q = locQueryTrim.toLowerCase();
+    return recentLocations.filter((r) => r.name.toLowerCase().includes(q));
+  }, [recentLocations, locQueryTrim]);
+
   const [savedLocations, setSavedLocations] = useState<SavedLocation[]>(() => readSavedFromStorage());
 
   const currentIsSaved = useMemo(() => {
@@ -189,6 +212,19 @@ export default function Dashboard() {
     persistSaved(savedLocations.filter((s) => !locationsMatch(s, entry)));
   }
 
+  function removeFromRecent(entry: SavedLocation) {
+    try {
+      const raw = localStorage.getItem(STORAGE_RECENT);
+      const parsed = raw ? (JSON.parse(raw) as SavedLocation[]) : [];
+      const prev = Array.isArray(parsed) ? parsed : [];
+      const next = prev.filter((p) => !locationsMatch(p, entry));
+      localStorage.setItem(STORAGE_RECENT, JSON.stringify(next));
+    } catch {
+      /* ignore */
+    }
+    setRecentTick((t) => t + 1);
+  }
+
   function goToSavedLocation(p: SavedLocation) {
     localStorage.setItem("fieldcast:lastLocation", JSON.stringify(p));
     const slug = slugify(p.name);
@@ -202,15 +238,15 @@ export default function Dashboard() {
     localStorage.setItem("fieldcast:lastLocation", JSON.stringify(entry));
     const prev: SavedLocation[] = (() => {
       try {
-        const raw = localStorage.getItem("fieldcast:recentLocations");
+        const raw = localStorage.getItem(STORAGE_RECENT);
         const parsed = raw ? (JSON.parse(raw) as SavedLocation[]) : [];
         return Array.isArray(parsed) ? parsed : [];
       } catch {
         return [];
       }
     })();
-    const deduped = [entry, ...prev.filter((p) => !(Math.abs(p.lat - entry.lat) < 0.001 && Math.abs(p.lon - entry.lon) < 0.001))].slice(0, 12);
-    localStorage.setItem("fieldcast:recentLocations", JSON.stringify(deduped));
+    const deduped = [entry, ...prev.filter((p) => !(Math.abs(p.lat - entry.lat) < 0.001 && Math.abs(p.lon - entry.lon) < 0.001))].slice(0, RECENT_MAX);
+    localStorage.setItem(STORAGE_RECENT, JSON.stringify(deduped));
     const slug = slugify(display);
     navigate(`/location/${slug}?name=${encodeURIComponent(display)}&lat=${loc.lat}&lon=${loc.lon}`);
     setLocQuery("");
@@ -566,13 +602,13 @@ export default function Dashboard() {
 
         {/* Location search */}
         <div
-        className="relative transition-all duration-300 overflow-hidden"
+        className="relative transition-all duration-300 overflow-visible z-[55]"
         style={{
-          paddingBottom: isCompactHeader ? "0px" : "12px",
-          maxHeight: isCompactHeader ? "0px" : "88px",
-          opacity: isCompactHeader ? 0 : 1,
-          transform: isCompactHeader ? "translateY(-8px)" : "translateY(0)",
-          pointerEvents: isCompactHeader ? "none" : "auto",
+          paddingBottom: isCompactHeader ? "6px" : "12px",
+          maxHeight: isCompactHeader ? "52px" : "88px",
+          opacity: 1,
+          transform: "translateY(0)",
+          pointerEvents: "auto",
           }}
 >
           <form onSubmit={handleLocSearchSubmit}>
@@ -610,7 +646,7 @@ export default function Dashboard() {
 
           {locFocused && (
             <div
-              className="absolute left-0 right-0 top-full mt-1 rounded-xl overflow-hidden z-[60]"
+              className="absolute left-0 right-0 top-full mt-1 rounded-xl z-[70] max-h-[min(70vh,420px)] overflow-x-hidden overflow-y-auto"
               style={{
                 background: "#f8fafc",
                 border: "1px solid #e2e8f0",
@@ -622,37 +658,95 @@ export default function Dashboard() {
                   <p className="text-amber-800 text-xs font-medium">{locSearchErr}</p>
                 </div>
               )}
-              {locQuery.trim().length === 0 && !locSearchErr && (
-                <p className="px-4 py-3 text-xs text-slate-500">Town, city, or UK postcode</p>
-              )}
-              {locResults.length > 0 ? (
+
+              {locQueryTrim.length >= 2 && (
                 <>
-                  <p className="text-[0.65rem] font-semibold tracking-widest text-slate-400 px-4 pt-3 pb-1">RESULTS</p>
-                  {locResults.map((r) => {
-                    const label = r.state ? `${r.name}, ${r.state}` : `${r.name}, ${r.country}`;
-                    return (
+                  {locResults.length > 0 && (
+                    <>
+                      <p className="text-[0.65rem] font-semibold tracking-widest text-slate-400 px-4 pt-3 pb-1">SUGGESTIONS</p>
+                      {locResults.map((r) => {
+                        const label = r.state ? `${r.name}, ${r.state}` : `${r.name}, ${r.country}`;
+                        return (
+                          <button
+                            key={`${r.lat},${r.lon}`}
+                            type="button"
+                            onMouseDown={() => navigateToLocationFromSearch(r)}
+                            className="w-full flex items-center justify-between gap-2 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-100 border-t border-slate-100"
+                          >
+                            <span className="flex items-center gap-2 min-w-0">
+                              <MapPin className="w-3.5 h-3.5 text-green-600 flex-shrink-0" />
+                              <span className="truncate">{label}</span>
+                            </span>
+                            <ArrowRight className="w-3.5 h-3.5 text-slate-300 flex-shrink-0" />
+                          </button>
+                        );
+                      })}
+                    </>
+                  )}
+                  {locSearching && (
+                    <div className="px-4 py-3 flex items-center gap-2 text-xs text-slate-500 border-t border-slate-100">
+                      <Search className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                      Searching…
+                    </div>
+                  )}
+                  {!locSearching && !locSearchErr && locResults.length === 0 && (
+                    <p className="px-4 py-3 text-xs text-slate-500 border-t border-slate-100">No matches — try a town or UK postcode</p>
+                  )}
+                </>
+              )}
+
+              {filteredRecentLocations.length > 0 && (
+                <>
+                  <p className="text-[0.65rem] font-semibold tracking-widest text-slate-400 px-4 pt-3 pb-1 border-t border-slate-100">
+                    RECENT
+                  </p>
+                  {filteredRecentLocations.map((r) => (
+                    <div
+                      key={`${r.lat},${r.lon}`}
+                      className="flex items-stretch border-t border-slate-100"
+                    >
                       <button
-                        key={`${r.lat},${r.lon}`}
                         type="button"
-                        onMouseDown={() => navigateToLocationFromSearch(r)}
-                        className="w-full flex items-center justify-between gap-2 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-100 border-t border-slate-100 first:border-t-0"
+                        onMouseDown={() =>
+                          navigateToLocationFromSearch({ name: r.name, lat: r.lat, lon: r.lon })
+                        }
+                        className="flex-1 min-w-0 flex items-center justify-between gap-2 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-100"
                       >
                         <span className="flex items-center gap-2 min-w-0">
-                          <MapPin className="w-3.5 h-3.5 text-green-600 flex-shrink-0" />
-                          <span className="truncate">{label}</span>
+                          <History className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
+                          <span className="truncate">{r.name}</span>
                         </span>
                         <ArrowRight className="w-3.5 h-3.5 text-slate-300 flex-shrink-0" />
                       </button>
-                    );
-                  })}
+                      <button
+                        type="button"
+                        aria-label={`Remove ${r.name} from recent`}
+                        className="px-2.5 text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors flex-shrink-0"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          removeFromRecent(r);
+                        }}
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
                 </>
-              ) : (
-                locQuery.trim().length >= 2 && !locSearching && !locSearchErr && (
-                  <p className="px-4 py-3 text-xs text-slate-500">No matches — try a town or UK postcode</p>
-                )
               )}
-              {locQuery.trim().length > 0 && locQuery.trim().length < 2 && (
-                <p className="px-4 py-3 text-xs text-slate-500">Type at least 2 characters</p>
+
+              {locQueryTrim.length > 0 && locQueryTrim.length < 2 && (
+                <p className="px-4 py-2 text-xs text-slate-500 border-t border-slate-100">
+                  Type at least 2 characters for live suggestions
+                </p>
+              )}
+
+              {!locSearchErr && locQueryTrim.length === 0 && (
+                <p
+                  className={`px-4 py-3 text-xs text-slate-500 ${filteredRecentLocations.length > 0 ? "border-t border-slate-100" : ""}`}
+                >
+                  Town, city, or UK postcode — type 2+ characters for suggestions
+                </p>
               )}
             </div>
           )}
