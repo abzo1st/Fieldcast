@@ -460,6 +460,8 @@ export default function Dashboard() {
   const farmerDecisions = useMemo(() => {
     if (!hourlyForUi.length) return {};
   
+    const peakWind = hourlyForUi.length ? Math.max(...hourlyForUi.map(h => h.wind)) : null;
+
     const sprayDriftRisk = hourlyForUi.some((hour) => hour.wind > 15)
       ? "High risk of spray drift. Avoid spraying during these hours."
       : hourlyForUi.some((hour) => hour.wind > 10)
@@ -498,7 +500,7 @@ export default function Dashboard() {
       ? "Moderate rain expected today"
       : hourlyForUi.some((hour) => hour.rain > 5)
       ? "Light rain expected today"
-      : hourlyForUi.some((hour) => hour.rain > 0)
+      : hourlyForUi.some((hour) => hour.rain === 0)
       ? "Dry conditions expected today"
       : hourlyForUi.some((hour) => hour.wind >= 25)
       ? "Strong winds expected today"
@@ -531,7 +533,25 @@ export default function Dashboard() {
       canHarvest: todaysVerdict.includes("Good") || todaysVerdict.includes("Dry"),
       canGraze: livestockAlerts === "No alerts",
     };
-  
+
+    const canICards = [
+      {
+        question: "Can I spray?",
+        status: actions.canSpray ? "yes" : sprayDriftRisk !== "Low" || frostRisk !== "Low" ? "no" : "caution",
+        reason: sprayDriftRisk !== "Low" ? '${sprayDriftRisk} (wind up to ${peakWind} mph)' : frostRisk !== "Low" ? frostRisk : 'Conditions are suitable for spraying (wind ${peakWind} mph)',
+      },
+      {
+        question: "Can I harvest?",
+        status: actions.canHarvest ? "yes" : "caution",
+        reason: todaysVerdict,
+      },
+      {
+        question: "Can I graze livestock?",
+        status: actions.canGraze ? "yes" : livestockAlerts !== "No alerts" ? "no" : "caution",
+        reason: livestockAlerts !== "No alerts" ? livestockAlerts : 'Conditions are suitable for grazing',
+      },
+    ];
+
     return {
       sprayDriftRisk,
       irrigationAdvice,
@@ -540,6 +560,7 @@ export default function Dashboard() {
       livestockAlerts,
       todaysVerdict,
       actions,
+      canICards,
     };
   }, [hourlyForUi]);
 
