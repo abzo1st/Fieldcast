@@ -458,7 +458,15 @@ export default function Dashboard() {
   }, [liveHourly]);
 
   const farmerDecisions = useMemo(() => {
-    if (!hourlyForUi.length) return {};
+    if (!hourlyForUi.length) return {sprayDriftRisk: "Low", irrigationAdvice: "", frostRisk: "Low",
+      heatRisk: "Low heat risk. Suitable conditions for all activities.",
+      livestockAlerts: "No alerts", todaysVerdict: "Good conditions for fieldwork today.",
+      actions: { canSpray: true, canHarvest: true, canGraze: true },
+      canICards: [] as { question: string; status: "yes"|"caution"|"no"; reason: string }[],
+      peakTemp: null as null|{ value: number; time: string },
+      peakRain: null as null|{ value: number; time: string },
+      peakWind: null as null|{ value: number; time: string },
+    };
   
     const peakWind = hourlyForUi.length ? Math.max(...hourlyForUi.map(h => h.wind)) : null;
 
@@ -490,42 +498,26 @@ export default function Dashboard() {
       ? "High heat risk for livestock. Provide shade, water and avoid outdoor activities during peak heat hours."
       : hourlyForUi.some((hour) => hour.temp <= 0)
         ? "Frost conditions expected. Ensure livestock have shelter and consider bringing them indoors if possible."
-        : hourlyForUi.some((hour) => hour.temp > 0 && hour.temp < 28)
-          ? "Suitable conditions for livestock. Monitor weather closely for any sudden changes."
-          : "No alerts"; 
+        : "No alerts"; 
           
-    const todaysVerdict = hourlyForUi.some((hour) => hour.rain >= 50)
+    const todaysVerdict = hourlyForUi.some((hour) => hour.rain >= 50 && hour.wind >= 25)
+      ? "Heavy rain and strong winds expected today"
+      : hourlyForUi.some((hour) => hour.rain >= 25 && hour.wind > 15)
+      ? "Moderate rain and winds expected today"
+      : hourlyForUi.some((hour) => hour.rain > 5 && hour.wind > 8)
+      ? "Light rain and winds expected today"
+      : hourlyForUi.some((hour) => hour.rain >= 50)
       ? "Heavy rain expected today"
       : hourlyForUi.some((hour) => hour.rain >= 25)
       ? "Moderate rain expected today"
       : hourlyForUi.some((hour) => hour.rain > 5)
       ? "Light rain expected today"
-      : hourlyForUi.some((hour) => hour.rain === 0)
-      ? "Dry conditions expected today"
       : hourlyForUi.some((hour) => hour.wind >= 25)
       ? "Strong winds expected today"
       : hourlyForUi.some((hour) => hour.wind > 15)
       ? "Moderate winds expected today"
       : hourlyForUi.some((hour) => hour.wind > 8)
       ? "Light winds expected today"
-      : hourlyForUi.some((hour) => hour.wind >= 2)
-      ? "No significant Wind expected today"
-      : hourlyForUi.some((hour) => hour.rain >= 50 && hour.wind >= 25)
-      ? "Heavy rain and strong winds expected today"
-      : hourlyForUi.some((hour) => hour.rain >= 25 && hour.wind > 15)
-      ? "Moderate rain and winds expected today"
-      : hourlyForUi.some((hour) => hour.rain > 5 && hour.wind > 8)
-      ? "Light rain and winds expected today"
-      : hourlyForUi.some((hour) => hour.rain > 50 && hour.wind >= 15)
-      ? "Heavy rain and moderate winds expected today"
-      : hourlyForUi.some((hour) => hour.rain > 25 && hour.wind > 8)
-      ? "Moderate rain and light winds expected today"
-      : hourlyForUi.some((hour) => hour.rain > 5 && hour.wind >= 2)
-      ? "Light rain expected with no significant winds today"
-      : hourlyForUi.some((hour) => hour.rain > 25 && hour.wind < 25)
-      ? "Moderate rain expected with strong winds today"
-      : hourlyForUi.some((hour) => hour.rain > 5 && hour.wind < 25)
-      ? "Light rain expected with strong winds today"
       : "Good conditions for fieldwork today."
   
     const actions = {
@@ -534,21 +526,62 @@ export default function Dashboard() {
       canGraze: livestockAlerts === "No alerts",
     };
 
-    const canICards = [
+    const canICards: { question: string; status: "yes"|"caution"|"no"; reason: string }[] = [
       {
-        question: "Can I spray?",
-        status: actions.canSpray ? "yes" : sprayDriftRisk !== "Low" || frostRisk !== "Low" ? "no" : "caution",
-        reason: sprayDriftRisk !== "Low" ? '${sprayDriftRisk} (wind up to ${peakWind} mph)' : frostRisk !== "Low" ? frostRisk : 'Conditions are suitable for spraying (wind ${peakWind} mph)',
+        question: "Can I Spray?",
+        status: hourlyForUi.some(h => h.wind > 15) ? "no" : hourlyForUi.some(h => h.wind > 10) ? "caution" : "yes",
+        reason: hourlyForUi.some(h => h.wind > 15)
+          ? `Wind exceeds 10 mph limit so high drift risk`
+          : hourlyForUi.some(h => h.wind > 10)
+            ? `Borderline wind speed, use low-drift nozzles`
+            : `Wind within safe spraying limit`,
       },
       {
-        question: "Can I harvest?",
-        status: actions.canHarvest ? "yes" : "caution",
-        reason: todaysVerdict,
+        question: "Can I Harvest?",
+        status: hourlyForUi.some(h => h.rain >= 50) ? "no" : hourlyForUi.some(h => h.rain >= 25) ? "caution" : "yes",
+        reason: hourlyForUi.some(h => h.rain >= 50)
+          ? "Heavy rain"
+          : hourlyForUi.some(h => h.rain >= 25)
+            ? "Damp"
+            : "Conditions workable",
       },
       {
-        question: "Can I graze livestock?",
-        status: actions.canGraze ? "yes" : livestockAlerts !== "No alerts" ? "no" : "caution",
-        reason: livestockAlerts !== "No alerts" ? livestockAlerts : 'Conditions are suitable for grazing',
+        question: "Can I move livestock?",
+        status: hourlyForUi.some(h => h.wind > 25 || h.temp >= 28 || h.temp <= 0) ? "caution" : "yes",
+        reason: hourlyForUi.some(h => h.wind > 25)
+          ? "Strong winds, shelter livestock"
+          : hourlyForUi.some(h => h.temp >= 28)
+            ? "Heat risk, move to cooler areas"
+            : hourlyForUi.some(h => h.temp <= 0)
+              ? "Frost risk"
+              : "Conditions safe for moving",
+      },
+      {
+        question: "Can I use machinery?",
+        status: hourlyForUi.some(h => h.rain >= 50) ? "no" : hourlyForUi.some(h => h.rain >= 25) ? "caution" : "yes",
+        reason: hourlyForUi.some(h => h.rain >= 50)
+          ? "Heavy rain"
+          : hourlyForUi.some(h => h.rain >= 25)
+            ? "Wet conditions"
+            : "Ground conditions acceptable",
+      },
+      {
+        question: "Can I apply fertiliser?",
+        status: hourlyForUi.some(h => h.wind > 15 || h.rain >= 50) ? "no" : hourlyForUi.some(h => h.wind > 10 || h.rain >= 25) ? "caution" : "yes",
+        reason: hourlyForUi.some(h => h.wind > 15)
+          ? "Wind too high, drift and waste risk"
+          : hourlyForUi.some(h => h.rain >= 50)
+            ? "Heavy rain, runoff risk"
+            : hourlyForUi.some(h => h.wind > 10 || h.rain >= 25)
+              ? "Borderline conditions, monitor closely"
+              : "Conditions suitable",
+      },
+      {
+        question: "Can I do a field inspection?",
+        status: hourlyForUi.some(h => h.wind > 25) ? "caution" : "yes",
+        reason: hourlyForUi.some(h => h.wind > 25)
+          ? "Very strong winds, take care on exposed ground"
+          : "Good visibility for inspection",
       },
     ];
 
