@@ -1294,14 +1294,15 @@ export default function Dashboard() {
                 <div className="flex-1 h-px bg-gray-200" />
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-                {[
-                  { question: "Spray crops?",      status: "no",      icon: <FlaskConical className="w-5 h-5" />, reason: "Wind 25 mph — too high" },
-                  { question: "Use machinery?",    status: "caution", icon: <Tractor className="w-5 h-5" />,      reason: "Soil wet — headlands only" },
-                  { question: "Apply fertiliser?", status: "no",      icon: <Waves className="w-5 h-5" />,        reason: "Wind & rain risk" },
-                  { question: "Harvest?",          status: "no",      icon: <Layers className="w-5 h-5" />,       reason: "Soil too wet" },
-                  { question: "Field inspection?", status: "yes",     icon: <Eye className="w-5 h-5" />,          reason: "Good visibility" },
-                  { question: "Move livestock?",   status: "caution", icon: <Shield className="w-5 h-5" />,       reason: "Windy — shelter first" },
-                ].map(({ question, status, icon, reason }) => {
+                {((farmerDecisions as any).canICards ?? []).map(({ question, status, reason }: { question: string; status: "yes"|"caution"|"no"; reason: string }) => {
+                  const iconMap: Record<string, React.ReactNode> = {
+                    "Can I Spray?": <FlaskConical className="w-5 h-5" />,
+                    "Can I Harvest?": <Layers className="w-5 h-5" />,
+                    "Can I move livestock?": <Shield className="w-5 h-5" />,
+                    "Can I use machinery?": <Tractor className="w-5 h-5" />,
+                    "Can I apply fertiliser?": <Waves className="w-5 h-5" />,
+                    "Can I do a field inspection?": <Eye className="w-5 h-5" />,
+                  };
                   const styles = {
                     yes:     { bg: "bg-emerald-50 border-emerald-200", icon: "text-emerald-700 bg-emerald-100", label: "Yes",     labelColor: "text-emerald-700", reasonColor: "text-emerald-800", badge: <CircleCheck className="w-4 h-4 text-emerald-600" /> },
                     caution: { bg: "bg-amber-50 border-amber-200",     icon: "text-amber-700 bg-amber-100",     label: "Caution", labelColor: "text-amber-700",   reasonColor: "text-amber-800",   badge: <AlertCircle className="w-4 h-4 text-amber-600" /> },
@@ -1309,7 +1310,7 @@ export default function Dashboard() {
                   }[status];
                   return (
                     <div key={question} className={`rounded-2xl border p-4 flex flex-col gap-2 ${styles.bg}`}>
-                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${styles.icon}`}>{icon}</div>
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${styles.icon}`}>{iconMap[question] ?? <CircleCheck className="w-5 h-5" />}</div>
                       <div>
                         <p className="text-gray-900 font-bold text-sm leading-snug">{question}</p>
                         <div className="flex items-center gap-1 mt-1">
@@ -1327,8 +1328,7 @@ export default function Dashboard() {
             {/* SPRAY DRIFT RISK + RAINFALL ACCUMULATION */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
-              {/* SPRAY DRIFT RISK INDICATOR */}
-              <div className="bg-white rounded-2xl overflow-hidden" style={{ border: "1px solid #fecaca", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
+            <div className="bg-white rounded-2xl overflow-hidden" style={{ border: `1px solid ${sprayDriftLevel === "HIGH" ? "#fecaca" : sprayDriftLevel === "MODERATE" ? "#fde68a" : "#bbf7d0"}`, boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
                 <div className="px-5 pt-5 pb-4 flex items-start justify-between" style={{ borderBottom: "1px solid #F1F3F5" }}>
                   <div>
                     <div className="flex items-center gap-2 mb-1">
@@ -1337,26 +1337,26 @@ export default function Dashboard() {
                     </div>
                     <p style={{ fontSize: "0.75rem", color: "#94a3b8" }}>Based on wind speed, gusts & humidity</p>
                   </div>
-                  <span className="px-3 py-1.5 rounded-lg text-white font-bold text-sm flex-shrink-0" style={{ background: "#ef4444", boxShadow: "0 2px 8px rgba(239,68,68,0.35)" }}>HIGH</span>
+                  <span className="px-3 py-1.5 rounded-lg text-white font-bold text-sm flex-shrink-0" style={{ background: sprayDriftLevelColor, boxShadow: `0 2px 8px ${sprayDriftLevelColor}55` }}>{sprayDriftLevel}</span>
                 </div>
                 <div className="px-5 py-4 space-y-4">
                   <div>
                     <div className="flex gap-1.5 mb-1.5">
                       {["Low","Moderate","High","Extreme"].map((l, i) => (
                         <div key={l} className="flex-1 h-4 rounded-full flex items-center justify-center"
-                          style={{ backgroundColor: ["#10b981","#f59e0b","#ef4444","#7f1d1d"][i], opacity: i === 2 ? 1 : 0.3 }}>
-                          {i === 2 && <span className="text-white font-bold" style={{ fontSize: "0.55rem" }}>▲</span>}
+                          style={{ backgroundColor: ["#10b981","#f59e0b","#ef4444","#7f1d1d"][i], opacity: i === sprayDriftLevelIndex ? 1 : 0.3 }}>
+                          {i === sprayDriftLevelIndex && <span className="text-white font-bold" style={{ fontSize: "0.55rem" }}>▲</span>}
                         </div>
                       ))}
                     </div>
                     <div className="flex justify-between text-gray-500 font-medium" style={{ fontSize: "0.68rem" }}>
-                      <span>Low</span><span>Moderate</span><span className="text-red-600 font-bold">High</span><span>Extreme</span>
+                      <span>Low</span><span>Moderate</span><span style={{ color: sprayDriftLevel === "HIGH" ? "#dc2626" : undefined, fontWeight: sprayDriftLevel === "HIGH" ? 700 : undefined }}>High</span><span>Extreme</span>
                     </div>
                   </div>
                   {[
-                    { label: "Wind speed", value: "15 mph", note: "⚠️ Limit is 10 mph",      ok: false },
-                    { label: "Wind gusts", value: "24 mph", note: "⚠️ Severe drift risk",     ok: false },
-                    { label: "Humidity",   value: "78%",    note: "✅ Within safe range",      ok: true  },
+                    { label: "Wind speed", value: `${liveWindMph ?? "—"} mph`, note: (liveWindMph ?? 0) > 10 ? "⚠️ Limit is 10 mph" : "✅ Within safe range", ok: (liveWindMph ?? 0) <= 10 },
+                    { label: "Wind gusts", value: `${liveGustMph ?? "—"} mph`, note: (liveGustMph ?? 0) > 20 ? "⚠️ Severe drift risk" : "✅ Gusts acceptable", ok: (liveGustMph ?? 0) <= 20 },
+                    { label: "Humidity",   value: `${liveHumidity ?? "—"}%`,    note: (liveHumidity ?? 0) < 40 ? "⚠️ Low humidity — evaporation risk" : "✅ Within safe range", ok: (liveHumidity ?? 50) >= 40 },
                   ].map(f => (
                     <div key={f.label} className="flex items-center justify-between py-2.5 border-b border-gray-100 last:border-0">
                       <span className="text-gray-600 font-medium text-sm">{f.label}</span>
@@ -1366,9 +1366,13 @@ export default function Dashboard() {
                       </div>
                     </div>
                   ))}
-                  <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3">
-                    <p className="text-red-800 font-bold text-sm">Do not spray today.</p>
-                    <p className="text-red-700 text-xs mt-0.5 font-medium">Risk of drift onto neighbouring land and watercourses. Next safe window: Saturday morning.</p>
+                  <div className={`border rounded-xl px-4 py-3 ${canSprayToday ? "bg-emerald-50 border-emerald-100" : "bg-red-50 border-red-100"}`}>
+                    <p className={`font-bold text-sm ${canSprayToday ? "text-emerald-800" : "text-red-800"}`}>{canSprayToday ? "Conditions suitable for spraying." : "Do not spray today."}</p>
+                    <p className={`text-xs mt-0.5 font-medium ${canSprayToday ? "text-emerald-700" : "text-red-700"}`}>
+                      {canSprayToday
+                        ? "Wind within safe limits. Monitor gusts and spray early in the day."
+                        : "Risk of drift onto neighbouring land and watercourses."}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -1442,7 +1446,7 @@ export default function Dashboard() {
                     <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: "rgba(245,158,11,0.1)" }}>
                       <Wind className="w-5 h-5 text-amber-500" />
                     </div>
-                    <span className="text-xs font-semibold px-2.5 py-1 rounded-lg" style={{ background: "rgba(245,158,11,0.12)", color: "#b45309" }}>High</span>
+                    <span className="text-xs font-semibold px-2.5 py-1 rounded-lg" style={{ background: "rgba(245,158,11,0.12)", color: "#b45309" }}>{(liveWindMph ?? 0) > 15 ? "High" : (liveWindMph ?? 0) > 10 ? "Moderate" : "Low"}</span>
                   </div>
                   <p style={{ fontSize: "0.7rem", color: "#94a3b8", fontWeight: 500, marginBottom: "4px" }}>Wind Speed</p>
                   <p className="text-amber-600 font-bold" style={{ fontSize: "2rem", lineHeight: 1 }}>{liveWindMph ?? 15} <span style={{ fontSize: "1rem", fontWeight: 500 }}>mph</span></p>
@@ -1462,27 +1466,11 @@ export default function Dashboard() {
                   </div>
                   <p style={{ fontSize: "0.7rem", color: "#94a3b8", fontWeight: 500, marginBottom: "4px" }}>Rainfall Today</p>
                   <p className="text-sky-600 font-bold" style={{ fontSize: "2rem", lineHeight: 1 }}>{liveRainTodayMm ?? 2.4} <span style={{ fontSize: "1rem", fontWeight: 500 }}>mm</span></p>
-                  <p style={{ fontSize: "0.72rem", color: "#94a3b8", marginTop: "6px" }}>38 mm this month</p>
+                  <p style={{ fontSize: "0.72rem", color: "#94a3b8", marginTop: "6px" }}>{liveMonthRainMm !== null ? `~${liveMonthRainMm} mm forecast this period` : "—"}</p>
                   <div className="mt-3 pt-3" style={{ borderTop: "1px solid #F1F3F5" }}>
-                    <p style={{ fontSize: "0.72rem", color: "#0ea5e9", fontWeight: 600 }}>🌧️ Heavy rain expected Thursday</p>
-                  </div>
-                </div>
-
-                {/* Soil Moisture */}
-                <div className="bg-white rounded-2xl p-5" style={{ border: "1px solid #E4E7EA", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: "rgba(59,130,246,0.1)" }}>
-                      <Layers className="w-5 h-5 text-blue-500" />
-                    </div>
-                    <span className="text-xs font-semibold px-2.5 py-1 rounded-lg" style={{ background: "rgba(59,130,246,0.1)", color: "#1d4ed8" }}>Wet</span>
-                  </div>
-                  <p style={{ fontSize: "0.7rem", color: "#94a3b8", fontWeight: 500, marginBottom: "4px" }}>Soil Moisture</p>
-                  <p className="text-blue-600 font-bold" style={{ fontSize: "2rem", lineHeight: 1 }}>76 <span style={{ fontSize: "1rem", fontWeight: 500 }}>%</span></p>
-                  <div className="mt-2 w-full h-1.5 rounded-full overflow-hidden" style={{ background: "#F1F3F5" }}>
-                    <div className="h-full rounded-full w-[76%]" style={{ background: "linear-gradient(90deg,#10b981,#3b82f6)" }} />
-                  </div>
-                  <div className="mt-3 pt-3" style={{ borderTop: "1px solid #F1F3F5" }}>
-                    <p style={{ fontSize: "0.72rem", color: "#3b82f6", fontWeight: 600 }}>⚠️ Avoid heavy machinery in fields</p>
+                    <p style={{ fontSize: "0.72rem", color: "#0ea5e9", fontWeight: 600 }}>
+                      {nextHeavyRainDay ? `🌧️ Heavy rain expected ${nextHeavyRainDay.day}` : "🌤️ No heavy rain forecast"}
+                    </p>
                   </div>
                 </div>
 
@@ -1498,7 +1486,9 @@ export default function Dashboard() {
                   <p className="text-indigo-600 font-bold" style={{ fontSize: "2rem", lineHeight: 1 }}>{liveFrostLevel}</p>
                   <p style={{ fontSize: "0.72rem", color: "#94a3b8", marginTop: "6px" }}>Soil temp 4°C at 10 cm depth</p>
                   <div className="mt-3 pt-3" style={{ borderTop: "1px solid #F1F3F5" }}>
-                    <p style={{ fontSize: "0.72rem", color: "#6366f1", fontWeight: 600 }}>🌙 Risk rises Thursday night</p>
+                    <p style={{ fontSize: "0.72rem", color: "#6366f1", fontWeight: 600 }}>
+                      {frostDaysCount > 0 ? `🌙 Frost risk on ${frostDaysCount} night${frostDaysCount > 1 ? "s" : ""} ahead` : "🌙 No frost risk in forecast"}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -1514,32 +1504,13 @@ export default function Dashboard() {
                 <div className="flex items-center gap-2.5">
                   <Shield className="w-4.5 h-4.5" style={{ width: "1.1rem", height: "1.1rem", color: "#7c3aed" }} />
                   <span className="text-gray-800 font-semibold text-sm">Livestock Weather Alerts</span>
-                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full text-white text-xs font-bold" style={{ background: "#7c3aed", fontSize: "0.65rem" }}>3</span>
+                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full text-white text-xs font-bold" style={{ background: "#7c3aed", fontSize: "0.65rem" }}>{livestockAlertItems.length}</span>
                 </div>
                 <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${livestockOpen ? "rotate-180" : ""}`} style={{ color: "#94a3b8" }} />
               </button>
               {livestockOpen && (
                 <div className="bg-white divide-y" style={{ borderColor: "#F1F3F5" }}>
-                  {[
-                    {
-                      icon: "💨", urgency: "Act today", urgencyColor: "bg-red-100 text-red-800 border-red-200",
-                      title: "Wind speeds dangerous for exposed animals",
-                      body: "Gusts up to 24 mph forecast. Move vulnerable livestock — lambs, young cattle — to sheltered fields or housing before this afternoon.",
-                      action: "Shelter animals by 14:00 today",
-                    },
-                    {
-                      icon: "❄️", urgency: "Act Thursday", urgencyColor: "bg-amber-100 text-amber-800 border-amber-200",
-                      title: "Frost risk — check overnight water supplies",
-                      body: "Temperatures dropping to -1°C Thursday night. Check water troughs for freezing. Ensure adequate bedding and overnight housing for vulnerable animals.",
-                      action: "Prepare before Thursday 17:00",
-                    },
-                    {
-                      icon: "🌧️", urgency: "Monitor this week", urgencyColor: "bg-sky-100 text-sky-800 border-sky-200",
-                      title: "Waterlogged pastures — risk to hoof health",
-                      body: "Heavy rain this week could leave pastures waterlogged. Prolonged standing in wet mud risks lameness and foot rot in cattle and sheep. Consider rotating grazing areas.",
-                      action: "Review field rotation plan",
-                    },
-                  ].map((alert, i) => (
+                  {livestockAlertItems.length > 0 ? livestockAlertItems.map((alert, i) => (
                     <div key={i} className="p-5 flex items-start gap-4">
                       <div className="text-3xl flex-shrink-0 mt-1">{alert.icon}</div>
                       <div className="flex-1">
@@ -1554,7 +1525,15 @@ export default function Dashboard() {
                         </div>
                       </div>
                     </div>
-                  ))}
+                  )) : (
+                    <div className="p-5 flex items-start gap-4">
+                      <div className="text-3xl flex-shrink-0 mt-1">✅</div>
+                      <div className="flex-1">
+                        <p className="text-gray-900 font-bold text-sm mb-1">No livestock weather concerns today</p>
+                        <p className="text-gray-600 text-sm leading-relaxed">Conditions are suitable for livestock. Monitor the forecast for any changes.</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1565,13 +1544,13 @@ export default function Dashboard() {
                 <Sunrise className="w-5 h-5 text-amber-400" />
                 <div>
                   <p style={{ fontSize: "0.68rem", color: "#94a3b8", fontWeight: 500 }}>Sunrise</p>
-                  <p className="text-gray-900 font-semibold">07:14</p>
+                  <p className="text-gray-900 font-semibold">{liveSunrise}</p>
                 </div>
               </div>
               <div className="flex-1 hidden sm:block px-4">
                 <div className="relative h-2 rounded-full overflow-hidden" style={{ background: "#F1F3F5" }}>
                   <div className="absolute left-[30%] right-[27%] h-full rounded-full" style={{ background: "linear-gradient(90deg,#fbbf24,#fb923c)" }} />
-                  <div className="absolute top-1/2 left-[44%] -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-yellow-400 border-2 border-white shadow" />
+                  <div className="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-yellow-400 border-2 border-white shadow" style={{ left: `${sunArcPct}%` }} />
                 </div>
                 <div className="flex justify-between mt-1.5" style={{ fontSize: "0.65rem", color: "#cbd5e1" }}>
                   <span>Midnight</span><span>Now</span><span>Midnight</span>
@@ -1580,7 +1559,7 @@ export default function Dashboard() {
               <div className="flex items-center gap-3">
                 <div className="text-right">
                   <p style={{ fontSize: "0.68rem", color: "#94a3b8", fontWeight: 500 }}>Sunset</p>
-                  <p className="text-gray-900 font-semibold">17:42</p>
+                  <p className="text-gray-900 font-semibold">{liveSunset}</p>
                 </div>
                 <Sunset className="w-5 h-5 text-orange-400" />
               </div>
@@ -1593,31 +1572,9 @@ export default function Dashboard() {
                 <div className="flex-1 h-px bg-gray-200" />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                {[
-                  {
-                    dot: "bg-red-500", bg: "border-red-100", icon: <FlaskConical className="w-5 h-5 text-red-500" />, iconBg: "bg-red-50 border-red-100",
-                    title: "Don't spray today",
-                    body: "Wind is 15 mph — too strong. Any spray will drift and could harm neighbouring land or watercourses.",
-                    footer: "✅ Saturday morning looks suitable",
-                    footerBg: "bg-red-50",
-                  },
-                  {
-                    dot: "bg-amber-400", bg: "border-amber-100", icon: <Snowflake className="w-5 h-5 text-amber-500" />, iconBg: "bg-amber-50 border-amber-100",
-                    title: "Prepare for Thursday frost",
-                    body: "Temperatures will drop to -1°C Thursday night. Cover any vulnerable crops — salad leaves, early brassicas — before Thursday evening.",
-                    footer: "⏰ Act before Thursday 17:00",
-                    footerBg: "bg-amber-50",
-                  },
-                  {
-                    dot: "bg-sky-400", bg: "border-sky-100", icon: <Waves className="w-5 h-5 text-sky-500" />, iconBg: "bg-sky-50 border-sky-100",
-                    title: "Check your field drains",
-                    body: "Soil is already wet and 12 mm of rain is coming Thursday. Make sure drains and ditches are clear to avoid waterlogging.",
-                    footer: "💧 Do this today if possible",
-                    footerBg: "bg-sky-50",
-                  },
-                ].map((a, i) => (
+                {todayActionCards.map((a, i) => (
                   <div key={i} className="bg-white rounded-2xl p-5 flex flex-col gap-3" style={{ border: "1px solid #E4E7EA", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${a.iconBg}`} style={{ border: "none" }}>{a.icon}</div>
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${a.iconBg}`}>{a.icon}</div>
                     <div>
                       <p className="text-gray-900 font-semibold text-sm">{a.title}</p>
                       <p className="text-gray-500 text-sm mt-1.5 leading-relaxed">{a.body}</p>
@@ -1660,7 +1617,7 @@ export default function Dashboard() {
             {forecastView === "hourly" && (
               <div className="space-y-4">
                 <div className="flex items-center gap-3 px-1">
-                  <p style={{ fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.1em", color: "#94a3b8" }}>HOURLY FORECAST — TODAY, 24 FEB</p>
+                  <p style={{ fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.1em", color: "#94a3b8" }}>HOURLY FORECAST — TODAY{todayDateStr ? `, ${todayDateStr}` : ""}</p>
                   <div className="flex-1 h-px bg-gray-200" />
                 </div>
                 <div className="bg-white rounded-2xl overflow-hidden" style={{ border: "1px solid #E4E7EA", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
@@ -1701,9 +1658,9 @@ export default function Dashboard() {
                 </div>
                 <div className="grid grid-cols-3 gap-3">
                   {[
-                    { label: "Peak temperature",  value: "7°C",    sub: "Around 12:00–14:00", vc: "#f97316" },
-                    { label: "Highest rain risk",  value: "60%",    sub: "19:00 tonight",      vc: "#3b82f6" },
-                    { label: "Peak wind",          value: "21 mph", sub: "17:00 this evening",  vc: "#d97706" },
+                    { label: "Peak temperature", value: (farmerDecisions as any).peakTemp ? `${(farmerDecisions as any).peakTemp.value}°C` : "—", sub: (farmerDecisions as any).peakTemp?.time ?? "—", vc: "#f97316" },
+                    { label: "Highest rain risk", value: (farmerDecisions as any).peakRain ? `${(farmerDecisions as any).peakRain.value}%`  : "—", sub: (farmerDecisions as any).peakRain?.time ?? "—", vc: "#3b82f6" },
+                    { label: "Peak wind",         value: (farmerDecisions as any).peakWind ? `${(farmerDecisions as any).peakWind.value} mph` : "—", sub: (farmerDecisions as any).peakWind?.time ?? "—", vc: "#d97706" },
                   ].map(s => (
                     <div key={s.label} className="bg-white rounded-2xl p-4 text-center" style={{ border: "1px solid #E4E7EA", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
                       <p style={{ fontSize: "0.7rem", color: "#94a3b8", fontWeight: 500, marginBottom: 4 }}>{s.label}</p>
@@ -1775,9 +1732,9 @@ export default function Dashboard() {
                 </div>
                 <div className="grid grid-cols-3 gap-3">
                   {[
-                    { label: "Total Rainfall (7 days)", value: "31 mm",  sub: "Above average",         vc: "#2563eb" },
-                    { label: "Best Fieldwork Day",      value: "Sunday", sub: "1 Mar · Sunny · 11°C",  vc: "#059669" },
-                    { label: "Frost Risk Days",         value: "3",      sub: "Thu, Fri, Sat nights",   vc: "#ea580c" },
+                    { label: "Total Rainfall (7 days)", value: `${sevenDayRainTotal} mm`, sub: sevenDayRainTotal > 20 ? "Above average" : "Near average", vc: "#2563eb" },
+                    { label: "Best Fieldwork Day",      value: bestFieldworkDay?.day ?? "—", sub: bestFieldworkDay ? `${bestFieldworkDay.date} · ${bestFieldworkDay.cond} · ${bestFieldworkDay.hi}°C` : "—", vc: "#059669" },
+                    { label: "Frost Risk Days",         value: String(frostDaysCount), sub: frostDaysCount > 0 ? "Check nightly forecasts" : "No frost expected", vc: "#ea580c" },
                   ].map(s => (
                     <div key={s.label} className="bg-white rounded-2xl p-4 text-center" style={{ border: "1px solid #E4E7EA", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
                       <p style={{ fontSize: "0.7rem", color: "#94a3b8", fontWeight: 500, marginBottom: 4 }}>{s.label}</p>
@@ -1793,7 +1750,7 @@ export default function Dashboard() {
             {forecastView === "weekly" && (
               <div className="space-y-4">
                 <div className="flex items-center gap-3 px-1">
-                  <p style={{ fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.1em", color: "#94a3b8" }}>4-WEEK OUTLOOK — YORK, YORKSHIRE</p>
+                  <p style={{ fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.1em", color: "#94a3b8" }}>4-WEEK OUTLOOK — {liveName.toUpperCase()}</p>
                   <div className="flex-1 h-px bg-gray-200" />
                 </div>
                 <div className="space-y-3">
@@ -1970,7 +1927,6 @@ export default function Dashboard() {
             )}
 
           </div>
-        )}
 
         {/* CHART TAB */}
         {activeTab === "chart" && (
