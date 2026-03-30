@@ -393,6 +393,12 @@ export default function Dashboard() {
     }));
   }, [live?.hourly, liveCurrent]);
 
+  const isCurrentHour = (timestamp) => {
+    const now = new Date();
+    const hour = new Date(timestamp * 1000);
+    return now.getHours() === hour.getHours();
+  }
+
   const liveDaily = useMemo(() => {
     return (live?.daily ?? []).slice(0, 7).map((d, idx) => {
       const day = idx === 0 ? "Today" : formatWeekday(d.dt);
@@ -425,9 +431,20 @@ export default function Dashboard() {
     }));
   }, [live?.daily]);
 
-  const hourlyForUi = liveHourly.length
-    ? liveHourly
-    : [
+  const hourlyForUi = useMemo(() => {
+    if(liveHourly.length) {
+      return liveHourly.map((hour) => ({
+        time: formatTime(hour.dt),
+        emoji: getIconEmoji(hour.weather?.[0]?.icon),
+        temp: Math.round(hour.temp),
+        rain: Math.round((hour.rain?.['1h'] ?? 0) * 10) / 10,
+        wind: Math.round(msToMph(hour.wind_speed)),
+        label: hour.weather?.[0]?.description ?? "Unkown",
+        now: isCurrentHour(hour.dt,)
+      }));
+    }
+
+    return [
         { time: "07:00", emoji: "🌫️", temp: 4, rain: 5, wind: 12, label: "Misty" },
         { time: "08:00", emoji: "🌤️", temp: 5, rain: 5, wind: 13, label: "Part cloud" },
         { time: "09:00", emoji: "🌤️", temp: 6, rain: 10, wind: 14, label: "Part cloud" },
@@ -446,6 +463,93 @@ export default function Dashboard() {
         { time: "22:00", emoji: "☁️", temp: 3, rain: 20, wind: 14, label: "Overcast" },
         { time: "23:00", emoji: "🌑", temp: 2, rain: 10, wind: 13, label: "Clear" },
       ];
+  }, [liveHourly]);
+
+  const farmerDecisions = useMemo(() => {
+    if (!hourlyForUi.length) return {};
+  
+    const sprayDriftRisk = hourlyForUi.some((hour) => hour.wind > 15)
+      ? "High risk of spray drift. Avoid spraying during these hours."
+      : hourlyForUi.some((hour) => hour.wind > 10)
+        ? "Moderate risk of spray drift. Consider delaying spraying or using drift-reduction techniques."
+        : "Low";
+  
+    const irrigationAdvice = hourlyForUi.some((hour) => hour.rain >= 50)
+      ? "Heavy rain expected. Irrigation not recommended."
+      : hourlyForUi.some((hour) => hour.rain >= 20)
+        ? "Moderate rain expected. Monitor soil moisture before irrigating."
+        : "Low chance of rain. Irrigation may be beneficial if soil is dry.";
+    
+    const frostRisk = hourlyForUi.some((hour) => hour.temp <= 0)
+      ? "Frost conditions expected. Protect sensitive crops and avoid frost-prone activities."
+      : hourlyForUi.some((hour) => hour.temp <= 4)
+        ? "Moderate frost risk, monitor temperatures closely."
+        : "Low"
+  
+    const heatRisk = hourlyForUi.some((hour) => hour.temp >= 32)
+      ? "High heat risk. Avoid strenuous activities and consider irrigation to protect crops."
+      : hourlyForUi.some((hour) => hour.temp >= 28)
+        ? "Moderate heat risk. Ensure livestock have access to shade and water."
+        : "Low heat risk. Suitable conditions for all activities.";
+    
+    const livestockAlerts = hourlyForUi.some((hour) => hour.temp >= 28)
+      ? "High heat risk for livestock. Provide shade, water and avoid outdoor activities during peak heat hours."
+      : hourlyForUi.some((hour) => hour.temp <= 0)
+        ? "Frost conditions expected. Ensure livestock have shelter and consider bringing them indoors if possible."
+        : hourlyForUi.some((hour) => hour.temp > 0 && hour.temp < 28)
+          ? "Suitable conditions for livestock. Monitor weather closely for any sudden changes."
+          : "No alerts"; 
+          
+    const todaysVerdict = hourlyForUi.some((hour) => hour.rain >= 50)
+      ? "Heavy rain expected today"
+      : hourlyForUi.some((hour) => hour.rain >= 25)
+      ? "Moderate rain expected today"
+      : hourlyForUi.some((hour) => hour.rain > 5)
+      ? "Light rain expected today"
+      : hourlyForUi.some((hour) => hour.rain > 0)
+      ? "Dry conditions expected today"
+      : hourlyForUi.some((hour) => hour.wind >= 25)
+      ? "Strong winds expected today"
+      : hourlyForUi.some((hour) => hour.wind > 15)
+      ? "Moderate winds expected today"
+      : hourlyForUi.some((hour) => hour.wind > 8)
+      ? "Light winds expected today"
+      : hourlyForUi.some((hour) => hour.wind >= 2)
+      ? "No significant Wind expected today"
+      : hourlyForUi.some((hour) => hour.rain >= 50 && hour.wind >= 25)
+      ? "Heavy rain and strong winds expected today"
+      : hourlyForUi.some((hour) => hour.rain >= 25 && hour.wind > 15)
+      ? "Moderate rain and winds expected today"
+      : hourlyForUi.some((hour) => hour.rain > 5 && hour.wind > 8)
+      ? "Light rain and winds expected today"
+      : hourlyForUi.some((hour) => hour.rain > 50 && hour.wind >= 15)
+      ? "Heavy rain and moderate winds expected today"
+      : hourlyForUi.some((hour) => hour.rain > 25 && hour.wind > 8)
+      ? "Moderate rain and light winds expected today"
+      : hourlyForUi.some((hour) => hour.rain > 5 && hour.wind >= 2)
+      ? "Light rain expected with no significant winds today"
+      : hourlyForUi.some((hour) => hour.rain > 25 && hour.wind < 25)
+      ? "Moderate rain expected with strong winds today"
+      : hourlyForUi.some((hour) => hour.rain > 5 && hour.wind < 25)
+      ? "Light rain expected with strong winds today"
+      : "Good conditions for fieldwork today."
+  
+    const actions = {
+      canSpray: sprayDriftRisk === "Low" && frostRisk === "Low",
+      canHarvest: todaysVerdict.includes("Good") || todaysVerdict.includes("Dry"),
+      canGraze: livestockAlerts === "No alerts",
+    };
+  
+    return {
+      sprayDriftRisk,
+      irrigationAdvice,
+      frostRisk,
+      heatRisk,
+      livestockAlerts,
+      todaysVerdict,
+      actions,
+    };
+  }, [hourlyForUi]);
 
   const forecastForUi = liveDaily.length
     ? liveDaily
@@ -967,7 +1071,7 @@ export default function Dashboard() {
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                 {[
-                  { question: "Spray crops?",      status: "no",      icon: <FlaskConical className="w-5 h-5" />, reason: "Wind 15 mph — too high" },
+                  { question: "Spray crops?",      status: "no",      icon: <FlaskConical className="w-5 h-5" />, reason: "Wind 25 mph — too high" },
                   { question: "Use machinery?",    status: "caution", icon: <Tractor className="w-5 h-5" />,      reason: "Soil wet — headlands only" },
                   { question: "Apply fertiliser?", status: "no",      icon: <Waves className="w-5 h-5" />,        reason: "Wind & rain risk" },
                   { question: "Harvest?",          status: "no",      icon: <Layers className="w-5 h-5" />,       reason: "Soil too wet" },
