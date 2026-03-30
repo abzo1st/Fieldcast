@@ -1,3 +1,4 @@
+import React from "react";
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
@@ -765,7 +766,6 @@ export default function Dashboard() {
       });
     }
 
-    // Ensure at least one card always shows
     if (cards.length === 0) {
       cards.push({
         icon: <CircleCheck className="w-5 h-5 text-emerald-500" />, iconBg: "bg-emerald-50",
@@ -778,7 +778,6 @@ export default function Dashboard() {
     return cards;
   })();
 
-  // Derived: today's verdict display
   const verdictDisplay = (() => {
     const v = (farmerDecisions as any).todaysVerdict ?? "Good conditions for fieldwork today.";
     const isGood = v.toLowerCase().includes("good");
@@ -800,7 +799,6 @@ export default function Dashboard() {
     };
   })();
 
-  // Derived: today's date string for hourly header
   const todayDateStr = liveCurrent
     ? new Date(liveCurrent.dt * 1000).toLocaleDateString(undefined, { day: "numeric", month: "short" }).toUpperCase()
     : "";
@@ -1146,7 +1144,7 @@ export default function Dashboard() {
                 {[
                   { icon: <Wind className="w-3.5 h-3.5 text-amber-400" />, text: `${liveWindMph ?? 15} mph`, accent: (liveWindMph ?? 15) > 10 ? "No spraying" : "Spray window possible", accentColor: "#fcd34d" },
                   { icon: <Droplets className="w-3.5 h-3.5 text-blue-400" />, text: `Humidity ${liveHumidity ?? 78}%`, accent: null, accentColor: "" },
-                  { icon: <CloudRain className="w-3.5 h-3.5 text-sky-400" />, text: "2.4 mm today · 38 mm this month", accent: null, accentColor: "" },
+                  { icon: <CloudRain className="w-3.5 h-3.5 text-sky-400" />, text: `${liveRainTodayMm ?? 0} mm today${liveMonthRainMm !== null ? ` · ~${liveMonthRainMm} mm forecast` : ""}`, accent: null, accentColor: "" },
                   { icon: <Sun className="w-3.5 h-3.5 text-yellow-300" />, text: `UV Index ${liveUvi ?? 1} — ${liveUvi !== null && liveUvi >= 6 ? "High" : liveUvi !== null && liveUvi >= 3 ? "Moderate" : "Low"}`, accent: null, accentColor: "" },
                 ].map((row, i) => (
                   <div key={i} className="flex items-center gap-2">
@@ -1274,17 +1272,19 @@ export default function Dashboard() {
 
             {/* TODAY'S VERDICT */}
             <div className="rounded-2xl p-6 flex items-center gap-5" style={{ background: "linear-gradient(135deg,#1c0a02 0%,#7c2d12 100%)", boxShadow: "0 8px 32px rgba(124,45,18,0.3)" }}>
-              <div className="text-6xl flex-shrink-0">⚠️</div>
+              <div className="text-6xl flex-shrink-0">{verdictDisplay.emoji}</div>
               <div className="flex-1">
                 <p className="text-amber-200 text-xs font-bold uppercase tracking-widest mb-2">Today's Verdict</p>
-                <p className="text-white font-bold" style={{ fontSize: "1.5rem", lineHeight: 1.2 }}>Caution — limited fieldwork only</p>
-                <p className="text-amber-100/90 mt-2" style={{ fontSize: "1rem", lineHeight: 1.6 }}>Winds too strong for spraying. Soil is wet. Do light inspections only and prepare crops for Thursday frost.</p>
+                <p className="text-white font-bold" style={{ fontSize: "1.5rem", lineHeight: 1.2 }}>{verdictDisplay.headline}</p>
+                <p className="text-amber-100/90 mt-2" style={{ fontSize: "1rem", lineHeight: 1.6 }}>{verdictDisplay.body}</p>
               </div>
-              <div className="hidden sm:flex flex-col items-center gap-1 flex-shrink-0 bg-white/10 rounded-2xl px-5 py-4">
-                <p className="text-amber-200 text-xs font-semibold">Daylight left</p>
-                <p className="text-white font-bold text-2xl">9h 28m</p>
-                <p className="text-amber-200/60 text-xs">Sets 17:42</p>
-              </div>
+              {daylightLeftStr && (
+                <div className="hidden sm:flex flex-col items-center gap-1 flex-shrink-0 bg-white/10 rounded-2xl px-5 py-4">
+                  <p className="text-amber-200 text-xs font-semibold">Daylight left</p>
+                  <p className="text-white font-bold text-2xl">{daylightLeftStr}</p>
+                  <p className="text-amber-200/60 text-xs">Sets {liveSunset}</p>
+                </div>
+              )}
             </div>
 
             {/* CAN I...? QUICK CHECK */}
