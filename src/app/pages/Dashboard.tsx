@@ -585,6 +585,10 @@ export default function Dashboard() {
       },
     ];
 
+    const peakTempHour = hourlyForUi.reduce((a, b) => b.temp > a.temp ? b : a);
+    const peakRainHour = hourlyForUi.reduce((a, b) => b.rain > a.rain ? b : a);
+    const peakWindHour = hourlyForUi.reduce((a, b) => b.wind > a.wind ? b : a);
+
     return {
       sprayDriftRisk,
       irrigationAdvice,
