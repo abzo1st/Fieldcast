@@ -433,15 +433,7 @@ export default function Dashboard() {
 
   const hourlyForUi = useMemo(() => {
     if(liveHourly.length) {
-      return liveHourly.map((hour) => ({
-        time: formatTime(hour.dt),
-        emoji: getIconEmoji(hour.weather?.[0]?.icon),
-        temp: Math.round(hour.temp),
-        rain: Math.round((hour.rain?.['1h'] ?? 0) * 10) / 10,
-        wind: Math.round(msToMph(hour.wind_speed)),
-        label: hour.weather?.[0]?.description ?? "Unkown",
-        now: isCurrentHour(hour.dt,)
-      }));
+      return liveHourly;
     }
 
     return [
@@ -504,7 +496,7 @@ export default function Dashboard() {
       ? "Heavy rain expected today"
       : hourlyForUi.some((hour) => hour.rain >= 25)
       ? "Moderate rain expected today"
-      : hourlyForUi.some((hour) => hour.rain > 5)
+      : hourlyForUi.some((hour) => hour.rain  5)
       ? "Light rain expected today"
       : hourlyForUi.some((hour) => hour.rain > 0)
       ? "Dry conditions expected today"
