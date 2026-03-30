@@ -496,7 +496,7 @@ export default function Dashboard() {
       ? "Heavy rain expected today"
       : hourlyForUi.some((hour) => hour.rain >= 25)
       ? "Moderate rain expected today"
-      : hourlyForUi.some((hour) => hour.rain  5)
+      : hourlyForUi.some((hour) => hour.rain > 5)
       ? "Light rain expected today"
       : hourlyForUi.some((hour) => hour.rain > 0)
       ? "Dry conditions expected today"
