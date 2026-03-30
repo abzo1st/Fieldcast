@@ -467,8 +467,6 @@ export default function Dashboard() {
       peakRain: null as null|{ value: number; time: string },
       peakWind: null as null|{ value: number; time: string },
     };
-  
-    const peakWind = hourlyForUi.length ? Math.max(...hourlyForUi.map(h => h.wind)) : null;
 
     const sprayDriftRisk = hourlyForUi.some((hour) => hour.wind > 15)
       ? "High risk of spray drift. Avoid spraying during these hours."
@@ -598,6 +596,9 @@ export default function Dashboard() {
       todaysVerdict,
       actions,
       canICards,
+      peakTemp: { value: peakTempHour.temp, time: peakTempHour.time },
+      peakRain: { value: peakRainHour.rain, time: peakRainHour.time },
+      peakWind: { value: peakWindHour.wind, time: peakWindHour.time },
     };
   }, [hourlyForUi]);
 
@@ -631,6 +632,179 @@ export default function Dashboard() {
     "30d": { amount: 74,  avg: 48,  label: "Last 30 days",  status: "Well above average",          statusColor: "text-red-500",   tip: "Prolonged wet period. Drainage checks essential before any fieldwork." },
   };
 
+  //derived data//
+  const liveSunrise = live?.daily?.[0]?.sunrise ? formatTime(live.daily[0].sunrise) : "07:14";
+  const liveSunset  = live?.daily?.[0]?.sunset  ? formatTime(live.daily[0].sunset)  : "17:42";
+
+  const daylightLeftStr = (() => {
+    if (!live?.daily?.[0]?.sunset) return null;
+    const nowSec = Date.now() / 1000;
+    const diff = live.daily[0].sunset - nowSec;
+    if (diff <= 0) return "Sunset passed";
+    const h = Math.floor(diff / 3600);
+    const m = Math.floor((diff % 3600) / 60);
+    return `${h}h ${m}m`;
+  })();
+
+  const sunArcPct = (() => {
+    if (!live?.daily?.[0]?.sunrise || !live?.daily?.[0]?.sunset) return 44;
+    const nowSec = Date.now() / 1000;
+    const { sunrise, sunset } = live.daily[0];
+    const pct = Math.min(Math.max((nowSec - sunrise) / (sunset - sunrise), 0), 1);
+    return Math.round(pct * 100);
+  })();
+
+  const liveMonthRainMm = (() => {
+    const days = live?.daily ?? [];
+    if (!days.length) return null;
+    const total = days.reduce((s, d) => s + (d.rain ?? 0), 0);
+    return Math.round(total);
+  })();
+
+  const sprayDriftLevel = (() => {
+    const wind = liveWindMph ?? 0;
+    const gust = liveGustMph ?? 0;
+    if (wind > 15 || gust > 20) return "HIGH";
+    if (wind > 10 || gust > 15) return "MODERATE";
+    return "LOW";
+  })();
+
+  const sprayDriftLevelColor = sprayDriftLevel === "HIGH" ? "#ef4444" : sprayDriftLevel === "MODERATE" ? "#f59e0b" : "#10b981";
+  const sprayDriftLevelIndex = sprayDriftLevel === "HIGH" ? 2 : sprayDriftLevel === "MODERATE" ? 1 : 0;
+  const canSprayToday = sprayDriftLevel === "LOW";
+
+  const sevenDayRainTotal = Math.round(forecastForUi.slice(0,7).reduce((s, d) => s + (d.rainMm ?? 0), 0) * 10) / 10;
+  const frostDaysCount = forecastForUi.slice(0,7).filter(d => d.frost !== "None").length;
+  const bestFieldworkDay = (() => {
+    const candidates = forecastForUi.slice(1); // skip today
+    if (!candidates.length) return null;
+    return candidates.reduce((best, d) => {
+      const score = (100 - d.rain) + d.hi - d.wind;
+      const bestScore = (100 - best.rain) + best.hi - best.wind;
+      return score > bestScore ? d : best;
+    });
+  })();
+
+  const nextHeavyRainDay = forecastForUi.find(d => d.rain >= 50 && d.day !== "Today");
+
+  const livestockAlertItems = (() => {
+    const alerts: { icon: string; urgency: string; urgencyColor: string; title: string; body: string; action: string }[] = [];
+    const maxWind = liveWindMph ?? 0;
+    const maxGust = liveGustMph ?? 0;
+    const minTemp = live?.daily?.[0]?.temp?.min ?? 99;
+    const rainDays = forecastForUi.filter(d => d.rainMm >= 10);
+
+    if (maxGust > 20 || maxWind > 15) {
+      alerts.push({
+        icon: "💨", urgency: "Act today", urgencyColor: "bg-red-100 text-red-800 border-red-200",
+        title: "Wind speeds dangerous for exposed animals",
+        body: `Gusts up to ${maxGust ?? maxWind} mph forecast. Move vulnerable livestock — lambs, young cattle — to sheltered fields or housing before this afternoon.`,
+        action: "Shelter animals now",
+      });
+    }
+    if (minTemp <= 2) {
+      const frostDay = forecastForUi.find(d => d.frost !== "None" && d.day !== "Today");
+      alerts.push({
+        icon: "❄️", urgency: frostDay ? `Act ${frostDay.day}` : "Act soon", urgencyColor: "bg-amber-100 text-amber-800 border-amber-200",
+        title: "Frost risk — check overnight water supplies",
+        body: `Temperatures dropping to ${Math.round(minTemp)}°C. Check water troughs for freezing. Ensure adequate bedding and overnight housing for vulnerable animals.`,
+        action: frostDay ? `Prepare before ${frostDay.day} evening` : "Prepare overnight shelter",
+      });
+    }
+    if (rainDays.length >= 2) {
+      alerts.push({
+        icon: "🌧️", urgency: "Monitor this week", urgencyColor: "bg-sky-100 text-sky-800 border-sky-200",
+        title: "Waterlogged pastures, risk to hoof health",
+        body: "Heavy rain this week could leave pastures waterlogged. Prolonged standing in wet mud risks lameness and foot rot in cattle and sheep. Consider rotating grazing areas.",
+        action: "Review field rotation plan",
+      });
+    }
+    return alerts;
+  })();
+
+  const todayActionCards = (() => {
+    const cards: { icon: React.ReactNode; iconBg: string; title: string; body: string; footer: string }[] = [];
+    const { sprayDriftRisk, frostRisk, todaysVerdict } = farmerDecisions as any;
+    const wind = liveWindMph ?? 0;
+    const minTemp = live?.daily?.[0]?.temp?.min;
+    const frostDay = forecastForUi.find(d => d.frost !== "None" && d.day !== "Today");
+    const heavyRainDay = forecastForUi.find(d => d.rainMm >= 10 && d.day !== "Today");
+
+    if (sprayDriftRisk && sprayDriftRisk !== "Low") {
+      const nextGoodDay = forecastForUi.slice(1).find(d => d.wind <= 10 && d.rain < 20);
+      cards.push({
+        icon: <FlaskConical className="w-5 h-5 text-red-500" />, iconBg: "bg-red-50",
+        title: "Don't spray today",
+        body: `Wind is ${wind} mph, too strong. Any spray will drift and could harm neighbouring land or watercourses.`,
+        footer: nextGoodDay ? `✅ ${nextGoodDay.day} looks suitable` : "✅ Check forecast for next window",
+      });
+    } else {
+      cards.push({
+        icon: <FlaskConical className="w-5 h-5 text-emerald-500" />, iconBg: "bg-emerald-50",
+        title: "Good spray window today",
+        body: `Wind is ${wind} mph, within safe limits. Good opportunity for spraying if soil conditions allow.`,
+        footer: "✅ Act during daylight hours",
+      });
+    }
+
+    if (frostDay && minTemp !== undefined && minTemp <= 2) {
+      cards.push({
+        icon: <Snowflake className="w-5 h-5 text-amber-500" />, iconBg: "bg-amber-50",
+        title: `Prepare for ${frostDay.day} frost`,
+        body: `Temperatures will drop to ${Math.round(minTemp)}°C. Cover any vulnerable crops, salad leaves, early brassicas, before ${frostDay.day} evening.`,
+        footer: `⏰ Act before ${frostDay.day} 17:00`,
+      });
+    }
+
+    if (heavyRainDay) {
+      cards.push({
+        icon: <Waves className="w-5 h-5 text-sky-500" />, iconBg: "bg-sky-50",
+        title: "Check your field drains",
+        body: `Soil is already wet and ${heavyRainDay.rainMm} mm of rain is coming ${heavyRainDay.day}. Make sure drains and ditches are clear to avoid waterlogging.`,
+        footer: "💧 Do this today if possible",
+      });
+    }
+
+    // Ensure at least one card always shows
+    if (cards.length === 0) {
+      cards.push({
+        icon: <CircleCheck className="w-5 h-5 text-emerald-500" />, iconBg: "bg-emerald-50",
+        title: "Good conditions today",
+        body: "No major weather concerns. A good opportunity for fieldwork, inspections, and general farm tasks.",
+        footer: "✅ Make the most of the window",
+      });
+    }
+
+    return cards;
+  })();
+
+  // Derived: today's verdict display
+  const verdictDisplay = (() => {
+    const v = (farmerDecisions as any).todaysVerdict ?? "Good conditions for fieldwork today.";
+    const isGood = v.toLowerCase().includes("good");
+    const isCaution = v.toLowerCase().includes("caution") || v.toLowerCase().includes("light") || v.toLowerCase().includes("moderate");
+    return {
+      emoji: isGood ? "✅" : isCaution ? "⚠️" : "🚫",
+      headline: v,
+      body: (() => {
+        const parts: string[] = [];
+        const wind = liveWindMph ?? 0;
+        const sd = (farmerDecisions as any).sprayDriftRisk ?? "";
+        const fr = (farmerDecisions as any).frostRisk ?? "";
+        if (sd && sd !== "Low") parts.push("Winds too strong for spraying.");
+        if (fr && fr !== "Low") parts.push("Frost risk tonight, protect crops.");
+        if ((liveRainTodayMm ?? 0) > 5) parts.push("Wet conditions, limit heavy machinery.");
+        if (parts.length === 0) parts.push("Conditions look suitable for most farm tasks.");
+        return parts.join(" ");
+      })(),
+    };
+  })();
+
+  // Derived: today's date string for hourly header
+  const todayDateStr = liveCurrent
+    ? new Date(liveCurrent.dt * 1000).toLocaleDateString(undefined, { day: "numeric", month: "short" }).toUpperCase()
+    : "";
+  
   return (
     <div className="min-h-screen" style={{ backgroundColor: "#F2F4F6" }}>
 
