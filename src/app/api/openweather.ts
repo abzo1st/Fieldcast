@@ -1,4 +1,5 @@
 export type OpenWeatherUnits = "metric" | "imperial";
+/// <reference types="vite/client" />
 
 /**
  * OpenWeather does not allow browser `fetch()` to api.openweathermap.org from your app origin (CORS).
@@ -146,7 +147,7 @@ export async function openWeatherOneCall(params: {
 }): Promise<OneCallResponse> {
   const key = getApiKey();
   if (!key) throw new Error("Missing VITE_OPENWEATHER_API_KEY");
-  const url = withParams(`${getOwBase()}/data/2.5/onecall`, {
+  const url = withParams(`${getOwBase()}/data/3.0/onecall`, {
     lat: params.lat,
     lon: params.lon,
     units: params.units ?? "metric",
