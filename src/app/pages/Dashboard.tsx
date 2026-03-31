@@ -463,7 +463,7 @@ export default function Dashboard() {
       heatRisk: "Low heat risk. Suitable conditions for all activities.",
       livestockAlerts: "No alerts", todaysVerdict: "Good conditions for fieldwork today.",
       actions: { canSpray: true, canHarvest: true, canGraze: true },
-      canICards: [] as { question: string; status: "yes"|"caution"|"no"; reason: string }[],
+      canICards: [] as { question: string; status: "yes"|"caution"|"no"; reason: string}[],
       peakTemp: null as null|{ value: number; time: string },
       peakRain: null as null|{ value: number; time: string },
       peakWind: null as null|{ value: number; time: string },
@@ -1925,8 +1925,9 @@ export default function Dashboard() {
                 </div>
               </div>
             )}
-
+            
           </div>
+        )}
 
         {/* CHART TAB */}
         {activeTab === "chart" && (
