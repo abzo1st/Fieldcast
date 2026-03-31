@@ -146,7 +146,7 @@ export async function openWeatherOneCall(params: {
 }): Promise<OneCallResponse> {
   const key = getApiKey();
   if (!key) throw new Error("Missing VITE_OPENWEATHER_API_KEY");
-  const url = withParams(`${getOwBase()}/data/3.0/onecall`, {
+  const url = withParams(`${getOwBase()}/data/2.5/onecall`, {
     lat: params.lat,
     lon: params.lon,
     units: params.units ?? "metric",
