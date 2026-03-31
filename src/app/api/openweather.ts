@@ -1,5 +1,4 @@
 export type OpenWeatherUnits = "metric" | "imperial";
-/// <reference types="vite/client" />
 
 /**
  * OpenWeather does not allow browser `fetch()` to api.openweathermap.org from your app origin (CORS).
