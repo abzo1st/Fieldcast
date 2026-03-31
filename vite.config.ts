@@ -6,6 +6,9 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   // Browser → OpenWeather is often blocked by CORS. Proxy through Vite so requests are same-origin in dev/preview.
   server: {
+    watch: {
+      ignored: ['**/vite.config.ts', '**/vite.config.js'],
+    },
     proxy: {
       '/__ow': {
         target: 'https://api.openweathermap.org',
