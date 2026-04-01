@@ -844,7 +844,7 @@ export default function Dashboard() {
               <MapPin className="w-3.5 h-3.5 text-green-400 flex-shrink-0" />
               <div className="text-left hidden sm:block">
                 <p style={{ fontSize: "0.85rem" }}>{liveName}</p>
-                <p className="text-green-300/50 leading-none" style={{ fontSize: "0.6rem" }}>UK location</p>
+                <p className="text-green-300/50 leading-none" style={{ fontSize: "0.6rem" }}>Selected location</p>
               </div>
               <span className="sm:hidden" style={{ fontSize: "0.85rem" }}>{liveName.split(",")[0]}</span>
               <ChevronDown className={`w-3.5 h-3.5 text-white/30 ml-1 transition-transform ${profileOpen ? "rotate-180" : ""}`} />
