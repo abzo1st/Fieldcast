@@ -18,7 +18,7 @@ Fieldcast focuses on usability for weather-dependent stakeholders by supporting:
 ## Features
 - Search by city name or UK postcode
 - Live weather data from OpenWeather: temperature, humidity, wind speed, rainfall, and UV index
-- Adjustable weather forecast with icons 
+- Forecast views: hourly, daily, weekly, and monthly with weather icons
 - Spray drift risk indicator based on wind, gusts, humidity
 - Frost risk and livestock weather alerts
 - Rainfall accumulation views for 24h, 7d, and 30d periods
@@ -26,24 +26,29 @@ Fieldcast focuses on usability for weather-dependent stakeholders by supporting:
 
 ## Prerequisites
 - Node.js (version 18 or above) — download from https://nodejs.org
-- An OpenWeatherMap API key supporting the One Call API 3.0 plan
+- An OpenWeather API key supporting the One Call API 3.0 plan
 
 ## Installation & Setup
 
-1. Clone the repository
-   git clone https://github.com/abzo1st/Fieldcast.git
-   cd <project-folder>
+1. Clone the repository:
+git clone https://github.com/abzo1st/Fieldcast.git
 
-2. Install dependencies:
-   npm install
+2. Move to project folder:
+cd Fieldcast
 
-3. Create file with the name `.env.local` in the root folder and add your API key:
+3. Install dependencies:
+npm install
+
+4. Create file with the name `.env.local` in the root folder and add your API key:
    VITE_OPENWEATHER_API_KEY=your_api_key_here
 
 ## Running the App
 
-   npm run dev
-   Ctrl+C to close the app
+1. Open command prompt and run:
+npm run dev
+
+2. Close the application:
+Ctrl+C
 
 Then open http://localhost:5173 in your browser.
 
