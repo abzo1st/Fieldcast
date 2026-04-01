@@ -5,6 +5,7 @@
       "moduleResolution": "Bundler",
       "lib": ["ESNext", "DOM"],
       "types": ["vite/client"],
+      "jsx": "react-jsx",
       "strict": true,
       "skipLibCheck": true,
       "noEmit": true
