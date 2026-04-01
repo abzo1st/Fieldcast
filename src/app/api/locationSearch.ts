@@ -1,9 +1,8 @@
+// A city or region search uses OpenWeather API, whereas a UK postcodes search uses postcodes.io.
+
 import { openWeatherGeocodeDirect, type GeoDirectResult } from "./openweather";
 import { looksLikeUkPostcode, lookupUkPostcode } from "./ukPostcode";
 
-/**
- * City / region search via OpenWeather; UK postcodes via postcodes.io (OW geocoding is poor for postcodes).
- */
 export async function searchLocations(query: string, limit = 6): Promise<GeoDirectResult[]> {
   const q = query.trim();
   if (!q) return [];

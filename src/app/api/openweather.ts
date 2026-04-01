@@ -1,3 +1,5 @@
+// Geocoding and One Call fetch OpenWeather through a dev/preview proxy or explicit base so the browser avoids CORS on api.openweathermap.org.
+
 export type OpenWeatherUnits = "metric" | "imperial";
 
 /**
@@ -20,6 +22,7 @@ function getOwBase(): string {
   return "https://api.openweathermap.org";
 }
 
+// Key is supplied at build time; callers throw if it is missing so failures are explicit.
 function getApiKey() {
   const key = import.meta.env.VITE_OPENWEATHER_API_KEY as string | undefined;
   return key?.trim() ? key.trim() : null;
@@ -36,6 +39,7 @@ function withParams(path: string, params: Record<string, string | number | boole
   return u.toString();
 }
 
+// Reads the body as text once, then parses JSON; non-OK responses reuse OpenWeather’s `message` when present.
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
   const text = await res.text().catch(() => "");
@@ -52,6 +56,7 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   return JSON.parse(text) as T;
 }
 
+// Same shape as postcodes.io results after mapping, so search UIs can use one type.
 export type GeoDirectResult = {
   name: string;
   lat: number;
@@ -60,12 +65,15 @@ export type GeoDirectResult = {
   state?: string;
 };
 
+// Resolves free-text place names to coordinates via OpenWeather’s Geocoding API.
 export async function openWeatherGeocodeDirect(query: string, limit = 6): Promise<GeoDirectResult[]> {
   const key = getApiKey();
   if (!key) throw new Error("Missing VITE_OPENWEATHER_API_KEY");
   const url = withParams(`${getOwBase()}/geo/1.0/direct`, { q: query, limit, appid: key });
   return fetchJson<GeoDirectResult[]>(url);
 }
+
+// --- One Call 3.0 response slices (dashboard reads current, hourly, daily, alerts) ---
 
 export type OneCallWeather = { id: number; main: string; description: string; icon: string };
 
@@ -146,6 +154,7 @@ export async function openWeatherOneCall(params: {
 }): Promise<OneCallResponse> {
   const key = getApiKey();
   if (!key) throw new Error("Missing VITE_OPENWEATHER_API_KEY");
+  // `exclude` defaults to dropping minutely; extend or narrow per caller.
   const url = withParams(`${getOwBase()}/data/3.0/onecall`, {
     lat: params.lat,
     lon: params.lon,
