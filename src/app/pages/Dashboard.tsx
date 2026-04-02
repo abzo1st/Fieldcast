@@ -144,6 +144,20 @@ function formatWeekday(tsSeconds: number) {
   return d.toLocaleDateString(undefined, { weekday: "short" });
 }
 
+/** Labels soil rows like "Thu 2" using the forecast day timestamp (local calendar). */
+function formatSoilMoistureChartDay(tsSeconds: number) {
+  const dom = new Date(tsSeconds * 1000).getDate();
+  return `${formatWeekday(tsSeconds)} ${dom}`;
+}
+
+/** Buckets for the 7-day soil outlook bars (no soil sensor — derived from forecast precip / POP / temp). */
+function soilMoistureBand(pct: number): { status: string; color: string } {
+  if (pct >= 82) return { status: "Waterlogged", color: "#7c3aed" };
+  if (pct >= 58) return { status: "Wet", color: "#3b82f6" };
+  if (pct >= 38) return { status: "Optimal", color: "#34d399" };
+  return { status: "Dry", color: "#f59e0b" };
+}
+
 // Maps OWM icon codes to emojis — OWM uses a two-digit prefix system,
 // e.g. "01d" = clear sky day, "11n" = thunderstorm at night
 function getIconEmoji(icon: string | undefined) {
@@ -562,6 +576,34 @@ export default function Dashboard() {
       rain: Math.round(((d.rain ?? 0) + (d.snow ?? 0)) * 10) / 10,
     }));
   }, [live?.daily]);
+
+  // Simple rolling index from daily precip, POP, and max temp; seeded by current humidity when available.
+  const soilMoistureForecastRows = useMemo(() => {
+    const daily = live?.daily ?? [];
+    if (!daily.length) {
+      return [] as { key: number; day: string; pct: number; status: string; color: string }[];
+    }
+    let m =
+      live?.current?.humidity != null
+        ? clamp(Number(live.current.humidity), 30, 72)
+        : 50;
+    return daily.slice(0, 7).map((d) => {
+      const precip = (d.rain ?? 0) + (d.snow ?? 0);
+      const pop = clamp(d.pop ?? 0, 0, 1);
+      m = m * 0.86 + precip * 4.2 + pop * 14;
+      m -= Math.max(0, d.temp.max - 6) * 0.38;
+      m = clamp(m, 10, 96);
+      const pct = Math.round(m);
+      const { status, color } = soilMoistureBand(pct);
+      return {
+        key: d.dt,
+        day: formatSoilMoistureChartDay(d.dt),
+        pct,
+        status,
+        color,
+      };
+    });
+  }, [live?.daily, live?.current?.humidity]);
 
   // Fall back to hardcoded placeholder data when the API hasn't loaded yet.
   // Keeps the UI looking meaningful on first render rather than showing blanks.
@@ -2159,28 +2201,23 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Soil moisture — static placeholder data for now, needs a real soil API */}
             <div className="bg-white rounded-2xl p-6" style={{ border: "1px solid #E4E7EA", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
               <p className="text-gray-800 font-semibold text-sm mb-4">Soil Moisture Forecast (7-day outlook)</p>
               <div className="space-y-2">
-                {[
-                  { day: "Tue 24", pct: 76, status: "Wet",         color: "#3b82f6" },
-                  { day: "Wed 25", pct: 82, status: "Wet",         color: "#3b82f6" },
-                  { day: "Thu 26", pct: 91, status: "Waterlogged", color: "#7c3aed" },
-                  { day: "Fri 27", pct: 88, status: "Wet",         color: "#3b82f6" },
-                  { day: "Sat 28", pct: 81, status: "Wet",         color: "#3b82f6" },
-                  { day: "Sun 1",  pct: 73, status: "Wet",         color: "#3b82f6" },
-                  { day: "Mon 2",  pct: 75, status: "Wet",         color: "#3b82f6" },
-                ].map(row => (
-                  <div key={row.day} className="flex items-center gap-3">
-                    <span style={{ fontSize: "0.75rem", color: "#94a3b8", fontWeight: 500 }} className="w-12">{row.day}</span>
-                    <div className="flex-1 h-3 rounded-full overflow-hidden" style={{ background: "#F1F3F5" }}>
-                      <div className="h-full rounded-full transition-all" style={{ width: `${row.pct}%`, backgroundColor: row.color, opacity: 0.75 }} />
+                {soilMoistureForecastRows.length === 0 ? (
+                  <p className="text-sm text-gray-500 py-2">Select a location to load the 7-day outlook.</p>
+                ) : (
+                  soilMoistureForecastRows.map(row => (
+                    <div key={row.key} className="flex items-center gap-3">
+                      <span style={{ fontSize: "0.75rem", color: "#94a3b8", fontWeight: 500 }} className="w-14 shrink-0">{row.day}</span>
+                      <div className="flex-1 h-3 rounded-full overflow-hidden" style={{ background: "#F1F3F5" }}>
+                        <div className="h-full rounded-full transition-all" style={{ width: `${row.pct}%`, backgroundColor: row.color, opacity: 0.75 }} />
+                      </div>
+                      <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "#374151" }} className="w-10 text-right shrink-0">{row.pct}%</span>
+                      <span style={{ fontSize: "0.75rem", color: "#94a3b8" }} className="w-24 text-right shrink-0">{row.status}</span>
                     </div>
-                    <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "#374151" }} className="w-10 text-right">{row.pct}%</span>
-                    <span style={{ fontSize: "0.75rem", color: "#94a3b8" }} className="w-20">{row.status}</span>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
               <div className="flex gap-4 mt-4 pt-4" style={{ borderTop: "1px solid #F1F3F5" }}>
                 <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-full bg-amber-400" /><span style={{ fontSize: "0.75rem", color: "#94a3b8" }}>Dry</span></div>
