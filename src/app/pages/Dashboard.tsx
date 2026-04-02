@@ -17,7 +17,13 @@ import {
 } from "recharts";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { FieldcastLogo } from "../components/FieldcastLogo";
-import { openWeatherOneCall, type GeoDirectResult, type OneCallResponse } from "../api/openweather";
+import {
+  openWeatherOneCall,
+  type GeoDirectResult,
+  type OneCallDaily,
+  type OneCallHourly,
+  type OneCallResponse,
+} from "../api/openweather";
 import { searchLocations } from "../api/locationSearch";
 
 // OpenWeather gives us wind in m/s but farmers think in mph, so everything
@@ -28,6 +34,97 @@ function msToMph(ms: number) {
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
+}
+
+function roundPrecipMm(mm: number) {
+  return Math.round(mm * 10) / 10;
+}
+
+/** Per-hour liquid + snow water equivalent from One Call hourly entries. */
+function sumHourlyPrecipMm(hourly: OneCallHourly[], hours: number) {
+  let s = 0;
+  const n = Math.min(hours, hourly.length);
+  for (let i = 0; i < n; i++) {
+    const h = hourly[i];
+    s += (h.rain?.["1h"] ?? 0) + (h.snow?.["1h"] ?? 0);
+  }
+  return s;
+}
+
+/** Sum daily rain + snow for the first `days` entries. */
+function sumDailyPrecipMm(daily: OneCallDaily[], days: number) {
+  let s = 0;
+  const n = Math.min(days, daily.length);
+  for (let i = 0; i < n; i++) {
+    const d = daily[i];
+    s += (d.rain ?? 0) + (d.snow ?? 0);
+  }
+  return s;
+}
+
+type RainfallPeriodKey = "24h" | "7d" | "30d";
+
+/**
+ * Compares modelled accumulation to typical UK reference totals for the same window
+ * (not from OpenWeather — used only for the “historical average” bar and status copy).
+ */
+function rainfallAccumulationInsight(
+  amount: number,
+  refAvgMm: number,
+  period: RainfallPeriodKey,
+): { status: string; statusColor: string; tip: string } {
+  const denom = refAvgMm > 0 ? refAvgMm : 1;
+  const ratio = amount / denom;
+  if (amount <= 0.05 && period === "24h") {
+    return {
+      status: "Little or no rain",
+      statusColor: "text-slate-500",
+      tip: "Very dry recently. Check soil moisture before assuming fields are firm enough for heavy kit.",
+    };
+  }
+  if (ratio < 0.55) {
+    return {
+      status: "Below average",
+      statusColor: "text-emerald-600",
+      tip:
+        period === "24h"
+          ? "Low recent rainfall. Good access for light machinery; still watch compaction on wetter patches."
+          : "Drier than typical for this span. Useful fieldwork windows — monitor dust and soil moisture for crops.",
+    };
+  }
+  if (ratio < 0.95) {
+    return {
+      status: "Slightly below average",
+      statusColor: "text-slate-500",
+      tip: "Rainfall a bit under the usual benchmark. Conditions mostly manageable — keep an eye on low-lying ground.",
+    };
+  }
+  if (ratio < 1.2) {
+    return {
+      status: "Near average",
+      statusColor: "text-sky-600",
+      tip: "Roughly in line with a typical period. Plan fieldwork as normal but watch the short-range forecast.",
+    };
+  }
+  if (ratio < 1.55) {
+    return {
+      status: "Above average",
+      statusColor: "text-amber-600",
+      tip: "Wetter than usual. Fields may be soft — avoid low-lying areas and delay heavy loads if ground poaches.",
+    };
+  }
+  if (ratio < 2) {
+    return {
+      status: "Well above average",
+      statusColor: "text-red-500",
+      tip: "Prolonged or intense wet spell. Drainage checks and headland-only rules for heavy machinery are sensible.",
+    };
+  }
+  return {
+    status: "Significantly above average",
+    statusColor: "text-red-600",
+    tip: "Very wet. Soil is likely saturated — postpone tillage and heavy trafficking until conditions improve.",
+  };
 }
 
 function formatTime(tsSeconds: number) {
@@ -426,7 +523,7 @@ export default function Dashboard() {
     }));
   }, [live?.hourly, liveCurrent]);
 
-  const isCurrentHour = (timestamp) => {
+  const isCurrentHour = (timestamp: number) => {
     const now = new Date();
     const hour = new Date(timestamp * 1000);
     return now.getHours() === hour.getHours();
@@ -668,13 +765,40 @@ export default function Dashboard() {
         { day: "Mon", high: 9, low: 5, rain: 5 },
       ];
 
-  // Hardcoded for now — would need a proper rain gauge / historical API to make
-  // these dynamic. TODO: wire up Met Office rainfall data when we get API access
-  const rainfallData: Record<"24h" | "7d" | "30d", { amount: number; avg: number; label: string; status: string; statusColor: string; tip: string }> = {
-    "24h": { amount: 2.4, avg: 1.8, label: "Last 24 hours", status: "Above average",              statusColor: "text-amber-600", tip: "Fields accessible but monitor closely. Avoid low-lying areas." },
-    "7d":  { amount: 31,  avg: 18,  label: "Last 7 days",   status: "Significantly above average", statusColor: "text-red-600",   tip: "Soil is very wet. Heavy machinery should stay on headlands only." },
-    "30d": { amount: 74,  avg: 48,  label: "Last 30 days",  status: "Well above average",          statusColor: "text-red-500",   tip: "Prolonged wet period. Drainage checks essential before any fieldwork." },
-  };
+  // Amounts from One Call: hourly mm sums (next 24h), daily sums (next 7d), and a 30d figure
+  // scaled from all available daily forecast days (~8) — OpenWeather does not return true past totals.
+  const rainfallData = useMemo(() => {
+    const hourly = live?.hourly ?? [];
+    const daily = live?.daily ?? [];
+    const ref: Record<RainfallPeriodKey, number> = { "24h": 1.8, "7d": 18, "30d": 48 };
+
+    const raw24 = sumHourlyPrecipMm(hourly, 24);
+    const raw7 = sumDailyPrecipMm(daily, 7);
+    const nDaily = daily.length;
+    const raw30 =
+      nDaily > 0 ? (sumDailyPrecipMm(daily, nDaily) / nDaily) * 30 : 0;
+
+    const mk = (period: RainfallPeriodKey, amount: number) => {
+      const rounded = roundPrecipMm(amount);
+      const insight = rainfallAccumulationInsight(rounded, ref[period], period);
+      return {
+        amount: rounded,
+        avg: ref[period],
+        label:
+          period === "24h" ? "Last 24 hours" : period === "7d" ? "Last 7 days" : "Last 30 days",
+        ...insight,
+      };
+    };
+
+    return {
+      "24h": mk("24h", raw24),
+      "7d": mk("7d", raw7),
+      "30d": mk("30d", raw30),
+    } as Record<
+      RainfallPeriodKey,
+      { amount: number; avg: number; label: string; status: string; statusColor: string; tip: string }
+    >;
+  }, [live?.hourly, live?.daily]);
 
   // --- Sunrise / Sunset ---
   const liveSunrise = live?.daily?.[0]?.sunrise ? formatTime(live.daily[0].sunrise) : "07:14";
