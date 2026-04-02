@@ -20,6 +20,8 @@ import { FieldcastLogo } from "../components/FieldcastLogo";
 import { openWeatherOneCall, type GeoDirectResult, type OneCallResponse } from "../api/openweather";
 import { searchLocations } from "../api/locationSearch";
 
+// OpenWeather gives us wind in m/s but farmers think in mph, so everything
+// goes through this before hitting the UI
 function msToMph(ms: number) {
   return ms * 2.2369362920544;
 }
@@ -45,6 +47,8 @@ function formatWeekday(tsSeconds: number) {
   return d.toLocaleDateString(undefined, { weekday: "short" });
 }
 
+// Maps OWM icon codes to emojis — OWM uses a two-digit prefix system,
+// e.g. "01d" = clear sky day, "11n" = thunderstorm at night
 function getIconEmoji(icon: string | undefined) {
   if (!icon) return "🌤️";
   if (icon.startsWith("01")) return "☀️";
@@ -64,6 +68,8 @@ const STORAGE_SAVED = "fieldcast:savedLocations";
 const STORAGE_RECENT = "fieldcast:recentLocations";
 const RECENT_MAX = 5;
 
+// "Close enough" comparison — avoids treating the same farm as two different
+// locations just because the coordinates rounded slightly differently
 function locationsMatch(a: SavedLocation, b: SavedLocation) {
   return Math.abs(a.lat - b.lat) < 0.001 && Math.abs(a.lon - b.lon) < 0.001;
 }
@@ -73,12 +79,15 @@ function readSavedFromStorage(): SavedLocation[] {
     const raw = localStorage.getItem(STORAGE_SAVED);
     const parsed = raw ? (JSON.parse(raw) as SavedLocation[]) : [];
     if (!Array.isArray(parsed)) return [];
+    // Filter out any corrupted entries that snuck in somehow
     return parsed.filter((l) => Number.isFinite(l.lat) && Number.isFinite(l.lon));
   } catch {
     return [];
   }
 }
 
+// URL slugs let us share links like /location/lower-marsh-farm rather than
+// a raw lat/lon, which is much friendlier for bookmarking
 function slugify(input: string) {
   return input
     .toLowerCase()
@@ -140,6 +149,8 @@ export default function Dashboard() {
   const [locSearching, setLocSearching] = useState(false);
   const [locSearchErr, setLocSearchErr] = useState<string | null>(null);
   const [isCompactHeader, setIsCompactHeader] = useState(false);
+  // recentTick is just a counter we bump to force recent locations to re-read
+  // from localStorage after a deletion — not pretty but it works
   const [recentTick, setRecentTick] = useState(0);
   const navigate = useNavigate();
   const location = useLocation();
@@ -156,6 +167,8 @@ export default function Dashboard() {
     return { lat, lon };
   }, [urlLat, urlLon]);
 
+  // URL coords take priority over whatever was last visited — lets shared
+  // links always land on the right farm
   const effectiveLocation = useMemo<SavedLocation | null>(() => {
     if (coordsFromUrl) {
       return { name: urlName ?? "Selected location", ...coordsFromUrl };
@@ -171,6 +184,9 @@ export default function Dashboard() {
     }
   }, [coordsFromUrl, urlName]);
 
+  // Re-derives recent list whenever the search dropdown opens or a deletion
+  // happens (via recentTick). Including location.search as a dep means it
+  // also refreshes after navigation.
   const recentLocations = useMemo(() => {
     try {
       const raw = localStorage.getItem(STORAGE_RECENT);
@@ -198,6 +214,7 @@ export default function Dashboard() {
     return savedLocations.some((s) => locationsMatch(s, effectiveLocation));
   }, [effectiveLocation, savedLocations]);
 
+  // Write to both state and localStorage together so they never drift apart
   function persistSaved(next: SavedLocation[]) {
     localStorage.setItem(STORAGE_SAVED, JSON.stringify(next));
     setSavedLocations(next);
@@ -234,6 +251,8 @@ export default function Dashboard() {
   }
 
   function navigateToLocationFromSearch(loc: { name: string; lat: number; lon: number; country?: string; state?: string }) {
+    // Build a display name that's specific enough to not be ambiguous
+    // e.g. "York, North Yorkshire" instead of just "York"
     const display = loc.state ? `${loc.name}, ${loc.state}` : loc.country ? `${loc.name}, ${loc.country}` : loc.name;
     const entry: SavedLocation = { name: display, lat: loc.lat, lon: loc.lon };
     localStorage.setItem("fieldcast:lastLocation", JSON.stringify(entry));
@@ -246,6 +265,7 @@ export default function Dashboard() {
         return [];
       }
     })();
+    // Dedupe before pushing — don't want the same place appearing twice in recents
     const deduped = [entry, ...prev.filter((p) => !(Math.abs(p.lat - entry.lat) < 0.001 && Math.abs(p.lon - entry.lon) < 0.001))].slice(0, RECENT_MAX);
     localStorage.setItem(STORAGE_RECENT, JSON.stringify(deduped));
     const slug = slugify(display);
@@ -256,6 +276,8 @@ export default function Dashboard() {
     setProfileOpen(false);
   }
 
+  // Debounced location search — 300ms feels snappy without hammering the API
+  // on every keystroke. Cancelled on cleanup so stale results never land.
   useEffect(() => {
     let cancelled = false;
     const q = locQuery.trim();
@@ -309,6 +331,8 @@ export default function Dashboard() {
     }
   };
 
+  // Compact header on scroll — hides after scrolling down 40px, reveals
+  // again when scrolling back up more than 8px (hysteresis stops it flickering)
   useEffect(() => {
   let lastY = window.scrollY;
 
@@ -330,6 +354,8 @@ export default function Dashboard() {
   return () => window.removeEventListener("scroll", onScroll);
 }, []);
 
+  // Re-fetch weather whenever the location changes. We exclude "minutely"
+  // from the OWM call since we don't render it and it saves some payload size.
   useEffect(() => {
     if (!effectiveLocation) return;
     let cancelled = false;
@@ -356,6 +382,7 @@ export default function Dashboard() {
     };
   }, [effectiveLocation]);
 
+  // --- Derived values from the live weather data ---
   const live = oneCall;
   const liveName = effectiveLocation?.name ?? "UK location";
   const liveCurrent = live?.current ?? null;
@@ -368,12 +395,15 @@ export default function Dashboard() {
   const liveCond = liveCurrent?.weather?.[0]?.description ? liveCurrent.weather[0].description : null;
   const liveEmoji = liveCurrent?.weather?.[0]?.icon ? getIconEmoji(liveCurrent.weather[0].icon) : "🌤️";
   const liveRainTodayMm = live?.daily?.[0]?.rain ?? null;
+  // Simple frost bucketing — below 0 is moderate risk, 0-2°C is low risk
   const liveFrostLevel = live?.daily?.[0]?.temp?.min !== undefined
     ? (live.daily[0].temp.min <= 0 ? "Moderate" : live.daily[0].temp.min <= 2 ? "Low" : "None")
     : "Low";
 
   const activeLocationSlug = slugify(liveName);
 
+  // Keep the URL slug in sync with the current location name. If someone
+  // lands on a stale slug (e.g. from an old bookmark) this quietly corrects it.
   useEffect(() => {
     if (!effectiveLocation) return;
     const slug = params.slug;
@@ -383,6 +413,7 @@ export default function Dashboard() {
     }
   }, [effectiveLocation, params.slug, navigate]);
 
+  // Slice to 17 hours so we don't show tomorrow's forecast mixed in with today
   const liveHourly = useMemo(() => {
     return (live?.hourly ?? []).slice(0, 17).map((h) => ({
       time: formatTime(h.dt),
@@ -390,6 +421,7 @@ export default function Dashboard() {
       temp: Math.round(h.temp),
       rain: Math.round(clamp(h.pop ?? 0, 0, 1) * 100),
       wind: Math.round(msToMph(h.wind_speed)),
+      // Mark the current hour so the UI can highlight it with "NOW"
       now: liveCurrent ? Math.abs(h.dt - liveCurrent.dt) < 3600 : false,
     }));
   }, [live?.hourly, liveCurrent]);
@@ -418,6 +450,7 @@ export default function Dashboard() {
         rainMm,
         wind: windMph,
         frost: d.temp.min <= 0 ? "Moderate" : d.temp.min <= 2 ? "Low" : "None",
+        // Opinionated plain-English fieldwork note based on rain probability
         note: popPct >= 70 ? "Wet spell likely — plan accordingly" : popPct >= 40 ? "Mixed conditions — monitor closely" : "Good fieldwork potential",
       };
     });
@@ -428,10 +461,13 @@ export default function Dashboard() {
       day: formatWeekday(d.dt),
       high: Math.round(d.temp.max),
       low: Math.round(d.temp.min),
+      // Combine rain + snow so the chart bar covers total precipitation
       rain: Math.round(((d.rain ?? 0) + (d.snow ?? 0)) * 10) / 10,
     }));
   }, [live?.daily]);
 
+  // Fall back to hardcoded placeholder data when the API hasn't loaded yet.
+  // Keeps the UI looking meaningful on first render rather than showing blanks.
   const hourlyForUi = useMemo(() => {
     if(liveHourly.length) {
       return liveHourly;
@@ -458,6 +494,9 @@ export default function Dashboard() {
       ];
   }, [liveHourly]);
 
+  // All the farm decision logic lives here — spray windows, frost warnings,
+  // livestock alerts, the "Can I...?" cards, etc. It's a chunky memo but
+  // keeping it together makes it easier to reason about the rules as a set.
   const farmerDecisions = useMemo(() => {
     if (!hourlyForUi.length) return {sprayDriftRisk: "Low", irrigationAdvice: "", frostRisk: "Low",
       heatRisk: "Low heat risk. Suitable conditions for all activities.",
@@ -469,6 +508,7 @@ export default function Dashboard() {
       peakWind: null as null|{ value: number; time: string },
     };
 
+    // UK pesticide regs: max 10 mph for spraying. Over 15 is a definite no.
     const sprayDriftRisk = hourlyForUi.some((hour) => hour.wind > 15)
       ? "High risk of spray drift. Avoid spraying during these hours."
       : hourlyForUi.some((hour) => hour.wind > 10)
@@ -584,6 +624,7 @@ export default function Dashboard() {
       },
     ];
 
+    // Peak values — used in the hourly summary cards at the bottom of the forecast tab
     const peakTempHour = hourlyForUi.reduce((a, b) => b.temp > a.temp ? b : a);
     const peakRainHour = hourlyForUi.reduce((a, b) => b.rain > a.rain ? b : a);
     const peakWindHour = hourlyForUi.reduce((a, b) => b.wind > a.wind ? b : a);
@@ -627,13 +668,15 @@ export default function Dashboard() {
         { day: "Mon", high: 9, low: 5, rain: 5 },
       ];
 
+  // Hardcoded for now — would need a proper rain gauge / historical API to make
+  // these dynamic. TODO: wire up Met Office rainfall data when we get API access
   const rainfallData: Record<"24h" | "7d" | "30d", { amount: number; avg: number; label: string; status: string; statusColor: string; tip: string }> = {
     "24h": { amount: 2.4, avg: 1.8, label: "Last 24 hours", status: "Above average",              statusColor: "text-amber-600", tip: "Fields accessible but monitor closely. Avoid low-lying areas." },
     "7d":  { amount: 31,  avg: 18,  label: "Last 7 days",   status: "Significantly above average", statusColor: "text-red-600",   tip: "Soil is very wet. Heavy machinery should stay on headlands only." },
     "30d": { amount: 74,  avg: 48,  label: "Last 30 days",  status: "Well above average",          statusColor: "text-red-500",   tip: "Prolonged wet period. Drainage checks essential before any fieldwork." },
   };
 
-  //derived data//
+  // --- Sunrise / Sunset ---
   const liveSunrise = live?.daily?.[0]?.sunrise ? formatTime(live.daily[0].sunrise) : "07:14";
   const liveSunset  = live?.daily?.[0]?.sunset  ? formatTime(live.daily[0].sunset)  : "17:42";
 
@@ -647,6 +690,7 @@ export default function Dashboard() {
     return `${h}h ${m}m`;
   })();
 
+  // Percentage along the arc from sunrise to sunset — drives the sun position dot
   const sunArcPct = (() => {
     if (!live?.daily?.[0]?.sunrise || !live?.daily?.[0]?.sunset) return 44;
     const nowSec = Date.now() / 1000;
@@ -655,6 +699,7 @@ export default function Dashboard() {
     return Math.round(pct * 100);
   })();
 
+  // Sum up the forecast rain across all available daily entries
   const liveMonthRainMm = (() => {
     const days = live?.daily ?? [];
     if (!days.length) return null;
@@ -662,6 +707,7 @@ export default function Dashboard() {
     return Math.round(total);
   })();
 
+  // Spray drift level shown in the dedicated card — derived from live wind/gust
   const sprayDriftLevel = (() => {
     const wind = liveWindMph ?? 0;
     const gust = liveGustMph ?? 0;
@@ -676,8 +722,11 @@ export default function Dashboard() {
 
   const sevenDayRainTotal = Math.round(forecastForUi.slice(0,7).reduce((s, d) => s + (d.rainMm ?? 0), 0) * 10) / 10;
   const frostDaysCount = forecastForUi.slice(0,7).filter(d => d.frost !== "None").length;
+
+  // Skip today (index 0) when finding the best fieldwork day — farmers don't
+  // need us to suggest "today" when they're already looking at today's forecast
   const bestFieldworkDay = (() => {
-    const candidates = forecastForUi.slice(1); // skip today
+    const candidates = forecastForUi.slice(1);
     if (!candidates.length) return null;
     return candidates.reduce((best, d) => {
       const score = (100 - d.rain) + d.hi - d.wind;
@@ -688,6 +737,9 @@ export default function Dashboard() {
 
   const nextHeavyRainDay = forecastForUi.find(d => d.rain >= 50 && d.day !== "Today");
 
+  // Generates the livestock alert items based on current conditions.
+  // We look at wind, frost, and prolonged rain — the three things that
+  // most affect animal welfare in a UK farming context.
   const livestockAlertItems = (() => {
     const alerts: { icon: string; urgency: string; urgencyColor: string; title: string; body: string; action: string }[] = [];
     const maxWind = liveWindMph ?? 0;
@@ -712,6 +764,7 @@ export default function Dashboard() {
         action: frostDay ? `Prepare before ${frostDay.day} evening` : "Prepare overnight shelter",
       });
     }
+    // Two or more heavy rain days in the forecast = muddy pasture trouble
     if (rainDays.length >= 2) {
       alerts.push({
         icon: "🌧️", urgency: "Monitor this week", urgencyColor: "bg-sky-100 text-sky-800 border-sky-200",
@@ -723,6 +776,8 @@ export default function Dashboard() {
     return alerts;
   })();
 
+  // Builds the "What to do today" action cards. Priority order: spray warning
+  // first (most time-sensitive), then frost prep, then drainage.
   const todayActionCards = (() => {
     const cards: { icon: React.ReactNode; iconBg: string; title: string; body: string; footer: string }[] = [];
     const { sprayDriftRisk, frostRisk, todaysVerdict } = farmerDecisions as any;
@@ -766,6 +821,8 @@ export default function Dashboard() {
       });
     }
 
+    // Default card if nothing bad is happening — nice to show positive
+    // confirmation rather than an empty section
     if (cards.length === 0) {
       cards.push({
         icon: <CircleCheck className="w-5 h-5 text-emerald-500" />, iconBg: "bg-emerald-50",
@@ -778,6 +835,7 @@ export default function Dashboard() {
     return cards;
   })();
 
+  // Turn the verdict string into an emoji + headline + body for the banner
   const verdictDisplay = (() => {
     const v = (farmerDecisions as any).todaysVerdict ?? "Good conditions for fieldwork today.";
     const isGood = v.toLowerCase().includes("good");
@@ -846,6 +904,7 @@ export default function Dashboard() {
                 <p style={{ fontSize: "0.85rem" }}>{liveName}</p>
                 <p className="text-green-300/50 leading-none" style={{ fontSize: "0.6rem" }}>Selected location</p>
               </div>
+              {/* On mobile just show the first part of the name to save space */}
               <span className="sm:hidden" style={{ fontSize: "0.85rem" }}>{liveName.split(",")[0]}</span>
               <ChevronDown className={`w-3.5 h-3.5 text-white/30 ml-1 transition-transform ${profileOpen ? "rotate-180" : ""}`} />
             </button>
@@ -855,7 +914,7 @@ export default function Dashboard() {
                   <p className="text-gray-500 text-xs font-semibold uppercase tracking-widest">Saved Locations</p>
                 </div>
                 {savedLocations.length === 0 ? (
-                  <p className="px-4 py-3 text-xs text-gray-500">No saved places yet. Add the map location you’re viewing with “Save current” below.</p>
+                  <p className="px-4 py-3 text-xs text-gray-500">No saved places yet. Add the map location you're viewing with "Save current" below.</p>
                 ) : (
                   savedLocations.map((p, i) => (
                     <div
@@ -904,7 +963,7 @@ export default function Dashboard() {
             )}
           </div>
 
-          {/* Date + Connectivity */}
+          {/* Date + connectivity status — hidden in compact mode to reclaim vertical space */}
           <div
           className="hidden sm:flex flex-col items-end gap-1 transition-all duration-300 overflow-hidden"
           style={{
@@ -926,7 +985,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Location search */}
+        {/* Location search bar — stays visible in both compact and full header modes */}
         <div
         className="relative transition-all duration-300 overflow-visible z-[55]"
         style={{
@@ -952,6 +1011,8 @@ export default function Dashboard() {
                 value={locQuery}
                 onChange={(e) => setLocQuery(e.target.value)}
                 onFocus={() => setLocFocused(true)}
+                // Small delay before closing so clicks inside the dropdown don't
+                // get swallowed before the click event fires
                 onBlur={() => setTimeout(() => setLocFocused(false), 180)}
                 placeholder="Search another location…"
                 className="flex-1 min-w-0 bg-transparent outline-none px-3 py-2.5 text-white placeholder:text-white/35"
@@ -1079,7 +1140,7 @@ export default function Dashboard() {
         </div>
         </div>
 
-        {/* Tabs */}
+        {/* Tab bar */}
         <div
         className="max-w-6xl mx-auto px-4 sm:px-6 flex transition-all duration-300"
         style={{ minHeight: isCompactHeader ? "40px" : "48px" }}
@@ -1110,13 +1171,13 @@ export default function Dashboard() {
           <div className="rounded-2xl px-5 py-4 flex items-start gap-3" style={{ background: "#FFFBEB", border: "1px solid #fde68a" }}>
             <Info className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
             <div>
-              <p className="text-amber-900 font-semibold text-sm">Couldn’t load OpenWeather data.</p>
+              <p className="text-amber-900 font-semibold text-sm">Couldn't load OpenWeather data.</p>
               <p className="text-amber-800/80 text-sm mt-1" style={{ lineHeight: 1.6 }}>{loadErr}</p>
             </div>
           </div>
         )}
 
-        {/* HERO BANNER */}
+        {/* HERO BANNER — big temperature number + quick stats */}
         <div className="rounded-2xl overflow-hidden relative" style={{ height: 190, boxShadow: "0 8px 40px rgba(0,0,0,0.18)" }}>
           <ImageWithFallback
             src="https://images.unsplash.com/photo-1604590627104-655d2be93b23?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxVSyUyMGZhcm1sYW5kJTIwZGF3biUyMGFlcmlhbCUyMGdvbGRlbiUyMGhvdXJ8ZW58MXx8fHwxNzcxOTgzNDMwfDA&ixlib=rb-4.1.0&q=80&w=1080"
@@ -1245,7 +1306,7 @@ export default function Dashboard() {
                       <p className={`text-xs font-medium mt-1 ${h.now ? "text-green-700" : "text-gray-400"}`}>{h.time}</p>
                       <span className="text-2xl">{h.emoji}</span>
                       <p className={`font-semibold text-sm ${h.now ? "text-green-800" : "text-gray-700"}`}>{h.temp}°</p>
-                      {/* Rain bar */}
+                      {/* Rain probability bar */}
                       <div className="w-full flex flex-col items-center gap-1">
                         <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
                           <div
@@ -1341,6 +1402,7 @@ export default function Dashboard() {
                 </div>
                 <div className="px-5 py-4 space-y-4">
                   <div>
+                    {/* Four-segment gauge — only the active segment is fully opaque */}
                     <div className="flex gap-1.5 mb-1.5">
                       {["Low","Moderate","High","Extreme"].map((l, i) => (
                         <div key={l} className="flex-1 h-4 rounded-full flex items-center justify-center"
@@ -1549,6 +1611,8 @@ export default function Dashboard() {
               </div>
               <div className="flex-1 hidden sm:block px-4">
                 <div className="relative h-2 rounded-full overflow-hidden" style={{ background: "#F1F3F5" }}>
+                  {/* The orange band represents the daylight window; 30% and 27% are
+                      approximate sunrise/sunset positions on the 24h scale */}
                   <div className="absolute left-[30%] right-[27%] h-full rounded-full" style={{ background: "linear-gradient(90deg,#fbbf24,#fb923c)" }} />
                   <div className="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-yellow-400 border-2 border-white shadow" style={{ left: `${sunArcPct}%` }} />
                 </div>
@@ -1682,6 +1746,8 @@ export default function Dashboard() {
                 <div className="overflow-x-auto pb-2 -mx-1 px-1">
                   <div className="flex gap-3" style={{ minWidth: "max-content" }}>
                     {forecastForUi.map((d) => {
+                      // Scale rain bar relative to 15mm being "full" — anything above that
+                      // just maxes out at 100% which is fine visually
                       const rainBar = Math.min((d.rainMm / 15) * 100, 100);
                       const isToday = d.day === "Today";
                       return (
@@ -1822,6 +1888,7 @@ export default function Dashboard() {
                     </div>
                     <div className="grid grid-cols-7 gap-1">
                       {([
+                        // March 2026 starts on a Sunday, so 6 blank cells first
                         { blank: true }, { blank: true }, { blank: true }, { blank: true }, { blank: true }, { blank: true },
                         { day: 1,  emoji: "☀️",  hi: 11, type: "good" },
                         { day: 2,  emoji: "🌦️", hi: 9,  type: "caution" },
@@ -1968,6 +2035,7 @@ export default function Dashboard() {
               </div>
             </div>
 
+            {/* Soil moisture — static placeholder data for now, needs a real soil API */}
             <div className="bg-white rounded-2xl p-6" style={{ border: "1px solid #E4E7EA", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
               <p className="text-gray-800 font-semibold text-sm mb-4">Soil Moisture Forecast (7-day outlook)</p>
               <div className="space-y-2">
