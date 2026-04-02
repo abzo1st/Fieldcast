@@ -28,6 +28,33 @@ Fieldcast focuses on usability for weather-dependent stakeholders by supporting:
 - Node.js (version 18 or above) — download from https://nodejs.org
 - An OpenWeather API key supporting the One Call API 3.0 plan
 
+## OpenWeather API key
+
+Fieldcast reads your key from environment variables at build/dev time (Vite). Follow these steps before running the app.
+
+1. **Get a key**  
+   Sign up at [OpenWeather](https://openweathermap.org/api), create an API key, and ensure your subscription includes **One Call API 3.0** (the app uses that product).
+
+2. **Create `.env.local` in the project root**  
+   The root is the same directory as `package.json` (not inside `src`). On macOS or Linux you can run:
+   ```bash
+   touch .env.local
+   ```
+   Or create a new file named exactly `.env.local` in your editor.
+
+3. **Add the variable**  
+   Open `.env.local` and add a single line (replace the placeholder with your real key):
+   ```
+   VITE_OPENWEATHER_API_KEY=your_actual_key_here
+   ```
+   Use the name **`VITE_OPENWEATHER_API_KEY`** exactly—Vite only exposes variables that start with `VITE_` to the app. Do not put spaces around `=`. Quotes are only needed if your key contains characters that would confuse the shell; usually they are not required.
+
+4. **Restart the dev server**  
+   Environment files are read when Vite starts. After you create or change `.env.local`, stop the dev server (`Ctrl+C`) and run `npm run dev` again.
+
+5. **Keep the key private**  
+   `.env.local` and other `.env*` files are listed in `.gitignore` and should not be committed. Do not paste your key into public repos or client-side code outside this local file.
+
 ## Installation & Setup
 
 1. Clone the repository:
@@ -39,8 +66,7 @@ cd Fieldcast
 3. Install dependencies:
 npm install
 
-4. Create file with the name `.env.local` in the root folder and add your API key:
-   VITE_OPENWEATHER_API_KEY=your_api_key_here
+4. Configure your OpenWeather API key in `.env.local` as described in [OpenWeather API key](#openweather-api-key) above.
 
 ## Running the App
 
