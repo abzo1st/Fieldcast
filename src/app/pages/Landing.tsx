@@ -8,6 +8,7 @@ import type { GeoDirectResult } from "../api/openweather";
 
 const BG = "https://images.unsplash.com/photo-1604590627104-655d2be93b23?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxVSyUyMGZhcm1sYW5kJTIwZGF3biUyMGFlcmlhbCUyMGdvbGRlbiUyMGhvdXJ8ZW58MXx8fHwxNzcxOTgzNDMwfDA&ixlib=rb-4.1.0&q=80&w=1080";
 
+// shown when the live API search has no results yet (or before the user types much)
 const FALLBACK_SUGGESTIONS = ["York, Yorkshire", "Inverness, Scotland", "Hereford, Herefordshire", "Bury St Edmunds, Suffolk", "Exeter, Devon", "Carlisle, Cumbria"];
 
 const FEATURES = [
@@ -17,6 +18,7 @@ const FEATURES = [
   { icon: <Shield className="w-4 h-4" />, label: "Livestock warnings" },
 ];
 
+// keeps URLs clean and consistent — replaces spaces/special chars with dashes
 function slugify(input: string) {
   return input
     .toLowerCase()
@@ -35,6 +37,8 @@ export default function Landing() {
   const [searching, setSearching] = useState(false);
   const [searchErr, setSearchErr] = useState<string | null>(null);
 
+  // filter the static fallback list client-side while the user types,
+  // so there's always something useful in the dropdown
   const filteredFallback = useMemo(() => {
     return query.length > 0
       ? FALLBACK_SUGGESTIONS.filter(s => s.toLowerCase().includes(query.toLowerCase()))
@@ -54,6 +58,8 @@ export default function Landing() {
 
     setSearching(true);
     setSearchErr(null);
+
+    // 300ms debounce — avoids hammering the API on every keystroke
     const t = window.setTimeout(() => {
       searchLocations(q, 6)
         .then((r) => {
@@ -80,7 +86,11 @@ export default function Landing() {
   function navigateToLocation(loc: { name: string; lat: number; lon: number; country?: string; state?: string }) {
     const display = loc.state ? `${loc.name}, ${loc.state}` : loc.country ? `${loc.name}, ${loc.country}` : loc.name;
     const entry: SavedLocation = { name: display, lat: loc.lat, lon: loc.lon };
+
+    // remember the last place they looked at so we can restore it on next visit
     localStorage.setItem("fieldcast:lastLocation", JSON.stringify(entry));
+
+    // maintain a short recent-locations list, deduped by coords
     const prev: SavedLocation[] = (() => {
       try {
         const raw = localStorage.getItem("fieldcast:recentLocations");
@@ -92,6 +102,7 @@ export default function Landing() {
     })();
     const deduped = [entry, ...prev.filter((p) => !(Math.abs(p.lat - entry.lat) < 0.001 && Math.abs(p.lon - entry.lon) < 0.001))].slice(0, 5);
     localStorage.setItem("fieldcast:recentLocations", JSON.stringify(deduped));
+
     const slug = slugify(display);
     navigate(`/location/${slug}?name=${encodeURIComponent(display)}&lat=${loc.lat}&lon=${loc.lon}`);
   }
@@ -101,6 +112,7 @@ export default function Landing() {
     const q = query.trim();
     if (!q) return;
 
+    // on submit we just want the top result, no need to show a list
     try {
       setSearching(true);
       setSearchErr(null);
@@ -198,6 +210,7 @@ export default function Landing() {
               className="flex items-center rounded-2xl overflow-visible transition-all duration-200"
               style={{
                 background: "rgba(255,255,255,0.07)",
+                // green glow when focused, subtle border otherwise
                 border: focused ? "1.5px solid rgba(74,222,128,0.55)" : "1.5px solid rgba(255,255,255,0.12)",
                 backdropFilter: "blur(24px)",
                 boxShadow: focused
@@ -211,6 +224,7 @@ export default function Landing() {
                 value={query}
                 onChange={e => setQuery(e.target.value)}
                 onFocus={() => setFocused(true)}
+                // slight delay so a click on a dropdown item registers before the blur closes it
                 onBlur={() => setTimeout(() => setFocused(false), 150)}
                 placeholder="Town, postcode or farm location…"
                 className="flex-1 bg-transparent outline-none px-4 py-4"
