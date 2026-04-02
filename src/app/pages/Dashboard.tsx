@@ -134,6 +134,43 @@ function formatTime(tsSeconds: number) {
   return `${hh}:${mm}`;
 }
 
+/** One Call `pop` is usually 0–1; values above 1 are treated as a percentage already. */
+function normalizePopToPercent(pop: number | undefined | null): number {
+  if (pop == null || !Number.isFinite(pop)) return 0;
+  if (pop > 1) return Math.round(clamp(pop, 0, 100));
+  return Math.round(clamp(pop, 0, 1) * 100);
+}
+
+/** YYYY-MM-DD for the forecast location (IANA zone from One Call `timezone`). */
+function locationCalendarDayKey(tsSeconds: number, ianaTimeZone: string): string {
+  const tz = ianaTimeZone?.trim() || "UTC";
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date(tsSeconds * 1000));
+  } catch {
+    return new Date(tsSeconds * 1000).toISOString().slice(0, 10);
+  }
+}
+
+/** Clock time (24h) at the pinned location — matches OWM “hourly” steps. */
+function formatHourAtLocation(tsSeconds: number, ianaTimeZone: string): string {
+  const tz = ianaTimeZone?.trim() || "UTC";
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      timeZone: tz,
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(new Date(tsSeconds * 1000));
+  } catch {
+    return formatTime(tsSeconds);
+  }
+}
+
 function formatShortDate(tsSeconds: number) {
   const d = new Date(tsSeconds * 1000);
   return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
@@ -156,6 +193,24 @@ function soilMoistureBand(pct: number): { status: string; color: string } {
   if (pct >= 58) return { status: "Wet", color: "#3b82f6" };
   if (pct >= 38) return { status: "Optimal", color: "#34d399" };
   return { status: "Dry", color: "#f59e0b" };
+}
+
+function deriveRainfallTodayBadgeStyle(
+  mm: number | null,
+  popPct: number | null,
+  hasDaily: boolean,
+): { label: string; bg: string; color: string } {
+  if (!hasDaily) {
+    return { label: "…", bg: "rgba(148,163,184,0.12)", color: "#64748b" };
+  }
+  const m = mm ?? 0;
+  const pop = popPct ?? 0;
+  if (m >= 15) return { label: "Heavy", bg: "rgba(30,58,138,0.14)", color: "#1e40af" };
+  if (m >= 5) return { label: "Moderate", bg: "rgba(14,165,233,0.14)", color: "#0369a1" };
+  if (m > 0.05) return { label: "Light", bg: "rgba(14,165,233,0.1)", color: "#0369a1" };
+  if (pop >= 70) return { label: "Likely", bg: "rgba(14,165,233,0.1)", color: "#0369a1" };
+  if (pop >= 35) return { label: "Chance", bg: "rgba(148,163,184,0.14)", color: "#475569" };
+  return { label: "Dry", bg: "rgba(148,163,184,0.1)", color: "#64748b" };
 }
 
 // Maps OWM icon codes to emojis — OWM uses a two-digit prefix system,
@@ -505,7 +560,27 @@ export default function Dashboard() {
   const liveFeels = liveCurrent ? Math.round(liveCurrent.feels_like) : null;
   const liveCond = liveCurrent?.weather?.[0]?.description ? liveCurrent.weather[0].description : null;
   const liveEmoji = liveCurrent?.weather?.[0]?.icon ? getIconEmoji(liveCurrent.weather[0].icon) : "🌤️";
-  const liveRainTodayMm = live?.daily?.[0]?.rain ?? null;
+
+  const liveDailyToday = live?.daily?.[0];
+  const liveRainTodayMm =
+    liveDailyToday != null
+      ? roundPrecipMm((liveDailyToday.rain ?? 0) + (liveDailyToday.snow ?? 0))
+      : null;
+  const liveRainTodayPopPct =
+    liveDailyToday?.pop != null ? Math.round(clamp(liveDailyToday.pop, 0, 1) * 100) : null;
+  const liveRainLastHourMm = (() => {
+    if (!liveCurrent) return null;
+    const rh = liveCurrent.rain?.["1h"];
+    const sh = liveCurrent.snow?.["1h"];
+    if (rh == null && sh == null) return null;
+    return roundPrecipMm((rh ?? 0) + (sh ?? 0));
+  })();
+  const liveRainTodayBadgeStyle = deriveRainfallTodayBadgeStyle(
+    liveRainTodayMm,
+    liveRainTodayPopPct,
+    !!liveDailyToday,
+  );
+
   // Simple frost bucketing — below 0 is moderate risk, 0-2°C is low risk
   const liveFrostLevel = live?.daily?.[0]?.temp?.min !== undefined
     ? (live.daily[0].temp.min <= 0 ? "Moderate" : live.daily[0].temp.min <= 2 ? "Low" : "None")
@@ -524,18 +599,32 @@ export default function Dashboard() {
     }
   }, [effectiveLocation, params.slug, navigate]);
 
-  // Slice to 17 hours so we don't show tomorrow's forecast mixed in with today
+  // Hours for “today” at the forecast location (OWM `timezone`), with per-hour POP from the API.
   const liveHourly = useMemo(() => {
-    return (live?.hourly ?? []).slice(0, 17).map((h) => ({
-      time: formatTime(h.dt),
+    const hourly = live?.hourly ?? [];
+    const tz = live?.timezone?.trim() || "UTC";
+    if (!hourly.length) return [];
+
+    const anchorDt = liveCurrent?.dt ?? hourly[0]?.dt;
+    let slice = hourly;
+    if (anchorDt != null) {
+      const todayKey = locationCalendarDayKey(anchorDt, tz);
+      const todayHours = hourly.filter((h) => locationCalendarDayKey(h.dt, tz) === todayKey);
+      slice = todayHours.length > 0 ? todayHours : hourly.slice(0, 24);
+    } else {
+      slice = hourly.slice(0, 24);
+    }
+
+    return slice.map((h) => ({
+      dt: h.dt,
+      time: formatHourAtLocation(h.dt, tz),
       emoji: getIconEmoji(h.weather?.[0]?.icon),
       temp: Math.round(h.temp),
-      rain: Math.round(clamp(h.pop ?? 0, 0, 1) * 100),
+      rain: normalizePopToPercent(h.pop),
       wind: Math.round(msToMph(h.wind_speed)),
-      // Mark the current hour so the UI can highlight it with "NOW"
       now: liveCurrent ? Math.abs(h.dt - liveCurrent.dt) < 3600 : false,
     }));
-  }, [live?.hourly, liveCurrent]);
+  }, [live?.hourly, live?.timezone, liveCurrent]);
 
   const isCurrentHour = (timestamp: number) => {
     const now = new Date();
@@ -548,7 +637,7 @@ export default function Dashboard() {
       const day = idx === 0 ? "Today" : formatWeekday(d.dt);
       const date = formatShortDate(d.dt);
       const rainMm = Math.round((d.rain ?? 0) * 10) / 10;
-      const popPct = Math.round(clamp(d.pop ?? 0, 0, 1) * 100);
+      const popPct = normalizePopToPercent(d.pop);
       const windMph = Math.round(msToMph(d.wind_speed));
       return {
         day,
@@ -865,12 +954,26 @@ export default function Dashboard() {
     return Math.round(pct * 100);
   })();
 
-  // Sum up the forecast rain across all available daily entries
+  // Sum forecast rain + snow across all daily entries returned by One Call (~8 days).
   const liveMonthRainMm = (() => {
     const days = live?.daily ?? [];
     if (!days.length) return null;
-    const total = days.reduce((s, d) => s + (d.rain ?? 0), 0);
-    return Math.round(total);
+    const total = days.reduce((s, d) => s + (d.rain ?? 0) + (d.snow ?? 0), 0);
+    return Math.round(total * 10) / 10;
+  })();
+
+  const liveRainConditionsSubline = (() => {
+    const parts: string[] = [];
+    if (liveRainLastHourMm != null && liveRainLastHourMm > 0) {
+      parts.push(`${liveRainLastHourMm} mm in the last hour`);
+    }
+    if (liveRainTodayPopPct != null) {
+      parts.push(`${liveRainTodayPopPct}% chance of precip today`);
+    }
+    if (liveMonthRainMm !== null) {
+      parts.push(`~${liveMonthRainMm} mm total in forecast`);
+    }
+    return parts.length ? parts.join(" · ") : null;
   })();
 
   // Spray drift level shown in the dedicated card — derived from live wind/gust
@@ -1371,7 +1474,17 @@ export default function Dashboard() {
                 {[
                   { icon: <Wind className="w-3.5 h-3.5 text-amber-400" />, text: `${liveWindMph ?? 15} mph`, accent: (liveWindMph ?? 15) > 10 ? "No spraying" : "Spray window possible", accentColor: "#fcd34d" },
                   { icon: <Droplets className="w-3.5 h-3.5 text-blue-400" />, text: `Humidity ${liveHumidity ?? 78}%`, accent: null, accentColor: "" },
-                  { icon: <CloudRain className="w-3.5 h-3.5 text-sky-400" />, text: `${liveRainTodayMm ?? 0} mm today${liveMonthRainMm !== null ? ` · ~${liveMonthRainMm} mm forecast` : ""}`, accent: null, accentColor: "" },
+                  {
+                    icon: <CloudRain className="w-3.5 h-3.5 text-sky-400" />,
+                    text:
+                      liveRainTodayMm !== null
+                        ? `${liveRainTodayMm} mm today${
+                            liveRainTodayPopPct != null ? ` · ${liveRainTodayPopPct}% chance` : ""
+                          }${liveMonthRainMm !== null ? ` · ~${liveMonthRainMm} mm forecast` : ""}`
+                        : "Precipitation —",
+                    accent: null,
+                    accentColor: "",
+                  },
                   { icon: <Sun className="w-3.5 h-3.5 text-yellow-300" />, text: `UV Index ${liveUvi ?? 1} — ${liveUvi !== null && liveUvi >= 6 ? "High" : liveUvi !== null && liveUvi >= 3 ? "Moderate" : "Low"}`, accent: null, accentColor: "" },
                 ].map((row, i) => (
                   <div key={i} className="flex items-center gap-2">
@@ -1458,7 +1571,7 @@ export default function Dashboard() {
                 <div className="flex px-3 py-3 gap-1" style={{ minWidth: "max-content" }}>
                   {hourlyForUi.map((h) => (
                     <div
-                      key={h.time}
+                      key={"dt" in h && typeof h.dt === "number" ? h.dt : h.time}
                       className={`flex flex-col items-center gap-2 px-3 py-3 rounded-2xl flex-shrink-0 relative ${
                         h.now
                           ? "bg-green-50 border border-green-200"
@@ -1690,14 +1803,33 @@ export default function Dashboard() {
                     <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: "rgba(14,165,233,0.1)" }}>
                       <CloudRain className="w-5 h-5 text-sky-500" />
                     </div>
-                    <span className="text-xs font-semibold px-2.5 py-1 rounded-lg" style={{ background: "rgba(14,165,233,0.1)", color: "#0369a1" }}>Light</span>
+                    <span
+                      className="text-xs font-semibold px-2.5 py-1 rounded-lg"
+                      style={{ background: liveRainTodayBadgeStyle.bg, color: liveRainTodayBadgeStyle.color }}
+                    >
+                      {liveRainTodayBadgeStyle.label}
+                    </span>
                   </div>
                   <p style={{ fontSize: "0.7rem", color: "#94a3b8", fontWeight: 500, marginBottom: "4px" }}>Rainfall Today</p>
-                  <p className="text-sky-600 font-bold" style={{ fontSize: "2rem", lineHeight: 1 }}>{liveRainTodayMm ?? 2.4} <span style={{ fontSize: "1rem", fontWeight: 500 }}>mm</span></p>
-                  <p style={{ fontSize: "0.72rem", color: "#94a3b8", marginTop: "6px" }}>{liveMonthRainMm !== null ? `~${liveMonthRainMm} mm forecast this period` : "—"}</p>
+                  <p className="text-sky-600 font-bold" style={{ fontSize: "2rem", lineHeight: 1 }}>
+                    {liveRainTodayMm !== null ? (
+                      <>
+                        {liveRainTodayMm} <span style={{ fontSize: "1rem", fontWeight: 500 }}>mm</span>
+                      </>
+                    ) : (
+                      <span style={{ fontSize: "1.5rem", fontWeight: 600, color: "#94a3b8" }}>—</span>
+                    )}
+                  </p>
+                  <p style={{ fontSize: "0.72rem", color: "#94a3b8", marginTop: "6px" }}>
+                    {liveRainConditionsSubline ?? "—"}
+                  </p>
                   <div className="mt-3 pt-3" style={{ borderTop: "1px solid #F1F3F5" }}>
                     <p style={{ fontSize: "0.72rem", color: "#0ea5e9", fontWeight: 600 }}>
-                      {nextHeavyRainDay ? `🌧️ Heavy rain expected ${nextHeavyRainDay.day}` : "🌤️ No heavy rain forecast"}
+                      {liveDailyToday
+                        ? nextHeavyRainDay
+                          ? `🌧️ Heavy rain expected ${nextHeavyRainDay.day}`
+                          : "🌤️ No heavy rain in forecast"
+                        : "—"}
                     </p>
                   </div>
                 </div>
@@ -1855,7 +1987,7 @@ export default function Dashboard() {
                     <div className="flex px-3 py-3 gap-1" style={{ minWidth: "max-content" }}>
                       {hourlyForUi.map((h) => (
                         <div
-                          key={h.time}
+                          key={"dt" in h && typeof h.dt === "number" ? h.dt : h.time}
                           className={`flex flex-col items-center gap-2 px-3 py-3 rounded-2xl flex-shrink-0 relative ${
                             h.now ? "bg-green-50 border border-green-200" : "hover:bg-gray-50 border border-transparent"
                           }`}
