@@ -1,10 +1,11 @@
 import React from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 import {
   MapPin, Wind, Droplets, CloudRain, Sun,
   Snowflake, Layers, Tractor, ChevronDown,
+  Loader2,
   AlertTriangle, Info,
   Eye, Gauge, Sunrise, Sunset,
   CircleCheck, FlaskConical, Waves,
@@ -349,6 +350,16 @@ export default function Dashboard() {
       return null;
     }
   }, [coordsFromUrl, urlName]);
+
+  useLayoutEffect(() => {
+    if (!effectiveLocation) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setLoadErr(null);
+    setOneCall(null);
+  }, [effectiveLocation]);
 
   // Re-derives recent list whenever the search dropdown opens or a deletion
   // happens (via recentTick). Including location.search as a dep means it
@@ -1436,6 +1447,26 @@ export default function Dashboard() {
       </header>
 
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-7 space-y-6">
+        {effectiveLocation && loading ? (
+          <div
+            className="rounded-2xl flex flex-col items-center justify-center gap-4 px-6 py-20"
+            style={{
+              background: "#fff",
+              border: "1px solid #E4E7EA",
+              boxShadow: "0 8px 40px rgba(0,0,0,0.08)",
+              minHeight: 360,
+            }}
+            role="status"
+            aria-live="polite"
+            aria-busy="true"
+          >
+            <Loader2 className="w-10 h-10 text-green-600 animate-spin shrink-0" aria-hidden />
+            <p className="text-gray-700 text-center text-sm font-medium" style={{ maxWidth: 360 }}>
+              Loading data for {liveName}
+            </p>
+          </div>
+        ) : (
+          <>
         {loadErr && (
           <div className="rounded-2xl px-5 py-4 flex items-start gap-3" style={{ background: "#FFFBEB", border: "1px solid #fde68a" }}>
             <Info className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
@@ -2359,6 +2390,8 @@ export default function Dashboard() {
               </div>
             </div>
           </div>
+        )}
+          </>
         )}
 
         <footer className="text-center py-6" style={{ borderTop: "1px solid #E4E7EA" }}>
